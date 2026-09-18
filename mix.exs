@@ -13,7 +13,8 @@ defmodule JsonRules.MixProject do
       deps: deps(),
       description: description(),
       package: package(),
-      docs: docs()
+      docs: docs(),
+      test_ignore_filters: [~r"support/.*\.ex$"]
     ]
   end
 
