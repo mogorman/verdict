@@ -280,6 +280,39 @@ The **completed result** of a run serializes the same way —
 [From JSON back to JSON: the completed result](docs/result_json.md) for the full
 flow and the report shape.
 
+## One-shot run
+
+`JsonRules.run/3` builds an engine, registers the rules, and runs them in a
+single call. `rules` may be a JSON string (a rule object or an array of them),
+a map, a `JsonRules.Rule` struct, or a list of any of those; `facts` may be a
+JSON string or a map of `name` to value (a value may be a function for a
+dynamic fact). The options accept any `JsonRules.Engine.new/1` key — `:strict`,
+`:schedule`, `:store`, `:log`, and so on.
+
+```elixir
+rules = """
+{ "event": { "type": "fouledOut" },
+  "conditions": { "all": [
+      { "fact": "personalFoulCount", "operator": "greaterThanInclusive", "value": 6 }
+  ] } }
+"""
+
+# {:ok, %JsonRules.RunResult{events: [event]}}
+JsonRules.run(rules, %{"personalFoulCount" => 6})
+
+# same, but return the result directly and raise on a bad rule / malformed JSON
+%JsonRules.RunResult{} = JsonRules.run!(rules, %{"personalFoulCount" => 6})
+
+# options pass straight through to the engine
+JsonRules.run!(rules, %{"personalFoulCount" => 6},
+  schedule: :parallel, strict: true, store: :genserver)
+```
+
+`run/3` returns `{:ok, %RunResult{}}`, `{:error, changeset}` (an invalid rule),
+or `{:error, {:bad_json, message}}`. `run!/3` returns the `RunResult` directly
+and raises `JsonRules.InvalidRuleError` (carrying the failing `changeset`) or
+`JsonRules.InvalidJSONError` (carrying the decoder's `reason` and `input`).
+
 ## Phases
 
 Feature development is tracked in per-phase guides, each with features and
