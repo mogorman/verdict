@@ -159,6 +159,34 @@ defmodule JsonRules.EvaluationTest do
       assert cs.changes == [{:member, %{actual: true, operator: "equal", value: true}}]
     end
 
+    test "all: strict: true evaluates every leaf past the first failure" do
+      conditions = %{
+        all: [
+          %{fact: "age", operator: "lessThan", value: 50, priority: 10},
+          %{fact: "member", operator: "equal", value: true, priority: 5},
+          %{fact: "other", operator: "equal", value: 1, priority: 1}
+        ]
+      }
+
+      facts = %{age: 30, member: false, other: 999}
+
+      short = run_cs(conditions, facts)
+      refute short.valid?
+      assert short.changes == [{:age, %{actual: 30, operator: "lessThan", value: 50}}]
+      assert field_in?(short.errors, :member)
+      refute field_in?(short.errors, :other)
+      assert short.data.facts == %{age: 30, member: false}
+      assert Enum.map(short.empty_values, & &1.fact) == ["other"]
+
+      strict = run_cs(conditions, facts, strict: true)
+      refute strict.valid?
+      assert strict.empty_values == []
+      assert strict.data.facts == %{age: 30, member: false, other: 999}
+      assert field_in?(strict.errors, :member)
+      assert field_in?(strict.errors, :other)
+      assert strict.changes == [{:age, %{actual: 30, operator: "lessThan", value: 50}}]
+    end
+
     test "an any of same-priority branches stops at the first that matches" do
       conditions = %{
         any: [
