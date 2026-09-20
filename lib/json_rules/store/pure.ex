@@ -1,82 +1,70 @@
 defmodule JsonRules.Store.Pure do
   @moduledoc """
-  The `:pure` store backend (the MVP default).
+  The `:pure` store backend (the default).
 
-  The store is a plain struct held in the caller's memory; no process is
-  started and no supervisor is involved. Because the struct is immutable,
-  mutations return a **new** store; `JsonRules.Engine` rebinds it for you.
+  The store is a plain `JsonRules.Store.State` struct held in the caller's memory;
+  no process is started and no supervisor is involved. Because the struct is
+  immutable, mutations return a **new** store; `JsonRules.Engine` rebinds it for
+  you.
 
   This is the lowest-overhead backend and is ideal for simple, short-lived
-  workloads or when you want to keep the engine entirely in your own
-  dataflow.
+  workloads or when you want to keep the engine entirely in your own dataflow.
   """
   @behaviour JsonRules.Store
 
-  alias JsonRules.Rule
+  alias JsonRules.Store.State
 
-  defstruct rules: %{}, facts: %{}, options: []
-
-  @type t :: %__MODULE__{
-          rules: map(),
-          facts: map(),
-          options: keyword()
-        }
+  # The `:pure` store handle *is* a `State` struct.
+  @type t :: State.t()
 
   @impl true
-  def init(options) do
-    %__MODULE__{options: options}
-  end
+  def create(_opts), do: State.new()
 
   @impl true
-  def add_rule(%__MODULE__{} = store, %Rule{} = rule) do
-    rule = ensure_id(rule)
-    {%{store | rules: Map.put(store.rules, rule.id, rule)}, rule}
-  end
+  def add_rule(state, rule), do: State.add_rule(state, rule)
 
   @impl true
-  def remove_rule(%__MODULE__{} = store, key) do
-    cond do
-      Map.has_key?(store.rules, key) ->
-        {%{store | rules: Map.delete(store.rules, key)}, true}
-
-      true ->
-        {matched, remaining} =
-          Enum.split_with(store.rules, fn {_id, rule} -> rule.name == key end)
-
-        {%{store | rules: Map.new(remaining)}, length(matched) > 0}
-    end
-  end
+  def remove_rule(state, key), do: State.remove_rule(state, key)
 
   @impl true
-  def get_rule(%__MODULE__{} = store, id) when is_binary(id) do
-    {store, Map.get(store.rules, id)}
-  end
+  def get_rule(state, id), do: State.get_rule(state, id)
 
   @impl true
-  def rules(%__MODULE__{} = store) do
-    {store, Map.values(store.rules)}
-  end
+  def rules(state), do: State.rules(state)
 
   @impl true
-  def add_fact(%__MODULE__{} = store, id, definition) when is_binary(id) do
-    %{store | facts: Map.put(store.facts, id, definition)}
-  end
+  def add_fact(state, fact), do: State.add_fact(state, fact)
 
   @impl true
-  def remove_fact(%__MODULE__{} = store, id) when is_binary(id) do
-    %{store | facts: Map.delete(store.facts, id)}
-  end
+  def remove_fact(state, id), do: State.remove_fact(state, id)
 
   @impl true
-  def facts(%__MODULE__{} = store) do
-    {store, store.facts}
-  end
+  def facts(state), do: State.facts(state)
 
   @impl true
-  def options(%__MODULE__{} = store) do
-    {store, store.options}
-  end
+  def add_operator(state, name, fun), do: State.add_operator(state, name, fun)
 
-  defp ensure_id(%Rule{id: id} = rule) when is_binary(id), do: rule
-  defp ensure_id(%Rule{} = rule), do: %{rule | id: Ecto.UUID.generate()}
+  @impl true
+  def remove_operator(state, name), do: State.remove_operator(state, name)
+
+  @impl true
+  def operators(state), do: State.operators(state)
+
+  @impl true
+  def add_decorator(state, name, fun), do: State.add_decorator(state, name, fun)
+
+  @impl true
+  def remove_decorator(state, name), do: State.remove_decorator(state, name)
+
+  @impl true
+  def decorators(state), do: State.decorators(state)
+
+  @impl true
+  def add_condition(state, name, condition), do: State.add_condition(state, name, condition)
+
+  @impl true
+  def remove_condition(state, name), do: State.remove_condition(state, name)
+
+  @impl true
+  def conditions(state), do: State.conditions(state)
 end
