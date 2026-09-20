@@ -332,6 +332,9 @@ mix bench            # run the benchmark suites (schedule, store, fact)
 mix coveralls.html   # coverage report + HTML in cover/; fails if below the ratchet
 ```
 
+The [v0.1.0 report](docs/v0.1.0.md) records a full benchmark run and the per-module
+coverage breakdown for that release.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
