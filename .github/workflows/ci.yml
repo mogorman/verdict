@@ -38,3 +38,37 @@ jobs:
 
       - name: Run tests
         run: mix test
+
+  coverage:
+    name: Coverage (Coveralls)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Erlang/Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "28"
+          elixir-version: "1.20.4"
+
+      - name: Fetch dependencies
+        run: mix deps.get
+
+      # Generates the HTML report in cover/ and fails the build if coverage
+      # drops below the minimum in coveralls.json.
+      - name: Coverage report + threshold
+        run: mix coveralls.html
+
+      # Posts to coveralls.io (requires the repo to be connected to Coveralls).
+      - name: Post to Coveralls
+        run: mix coveralls.github
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: cover/

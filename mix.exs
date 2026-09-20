@@ -14,7 +14,21 @@ defmodule JsonRules.MixProject do
       description: description(),
       package: package(),
       docs: docs(),
-      test_ignore_filters: [~r"support/.*\.ex$"]
+      test_ignore_filters: [~r"support/.*\.ex$"],
+      test_coverage: [tool: ExCoveralls, export: "cov"]
+    ]
+  end
+
+  def cli do
+    [
+      preferred_envs: [
+        coveralls: :test,
+        "coveralls.detail": :test,
+        "coveralls.html": :test,
+        "coveralls.cobertura": :test,
+        "coveralls.github": :test,
+        "coveralls.post": :test
+      ]
     ]
   end
 
@@ -26,7 +40,11 @@ defmodule JsonRules.MixProject do
 
   defp deps do
     [
-      {:ecto, "~> 3.14"}
+      {:ecto, "~> 3.14"},
+      {:json_path, "~> 0.4.1"},
+      {:benchee, "~> 1.3", only: [:dev, :test]},
+      {:benchee_html, "~> 1.0", only: [:dev, :test]},
+      {:excoveralls, "~> 0.18", only: :test}
     ]
   end
 
