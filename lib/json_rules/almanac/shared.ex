@@ -30,11 +30,7 @@ defmodule JsonRules.Almanac.Shared do
   def destroy(%Almanac{handle: pid}), do: GenServer.stop(pid)
 
   @doc "Computes (and caches) the value of `fact_id` in the calling worker."
-  def fact_value(
-        %Almanac{handle: pid, allow_undefined_facts: allow?} = almanac,
-        fact_id,
-        params \\ %{}
-      ) do
+  def fact_value(%Almanac{handle: pid, allow_undefined_facts: allow?} = almanac, fact_id, params) do
     params = params || %{}
 
     case GenServer.call(pid, {:get_def, fact_id}) do

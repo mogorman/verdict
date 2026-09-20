@@ -28,7 +28,7 @@ defmodule JsonRules.Almanac.ProcessLocal do
   def fact_value(
         %Almanac{handle: token, allow_undefined_facts: allow?} = almanac,
         fact_id,
-        params \\ %{}
+        params
       ) do
     params = params || %{}
     st = state(token)
