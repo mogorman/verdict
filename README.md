@@ -335,6 +335,11 @@ mix coveralls.html   # coverage report + HTML in cover/; fails if below the ratc
 The [v0.1.0 report](docs/v0.1.0.md) records a full benchmark run and the per-module
 coverage breakdown for that release.
 
+## AI assistance
+
+This project was implemented with the help of [opencode](https://opencode.ai), an AI
+coding CLI, using the Qwen 3.8 27B model.
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
