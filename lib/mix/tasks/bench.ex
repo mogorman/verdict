@@ -5,9 +5,10 @@ defmodule Mix.Tasks.Bench do
       mix bench            # run all suites
       mix bench schedule   # schedule × scale × distribution (cheap facts)
       mix bench store      # store backends (:pure / :genserver / :ets)
-      mix bench fact       # fact cost (constant vs dynamic)
-      mix bench slowfacts  # realistic dataset: slow facts × schedule × scale
-      mix bench engines    # schedule × short-circuit: the advantage of each engine
+       mix bench fact       # fact cost (constant vs dynamic)
+       mix bench slowfacts  # realistic dataset: slow facts × schedule × scale
+       mix bench engines    # schedule × short-circuit: the advantage of each engine
+       mix bench matrix     # full matrix: store × schedule × short-circuit × speed × caching
 
   The suites live in `bench/` and are required on demand, so the benchmark
   tooling is never compiled into the shipped library. Benchee results (CSV and
@@ -15,14 +16,15 @@ defmodule Mix.Tasks.Bench do
   """
   use Mix.Task
 
-  @shortdoc "Runs the JSON-Rules benchmark suites (schedule, store, fact-cost, slow-facts, engines)"
+  @shortdoc "Runs the JSON-Rules benchmark suites (schedule, store, fact-cost, slow-facts, engines, matrix)"
 
   @targets [
     {"schedule", "bench/schedule.ex", JsonRules.Bench.Schedule},
     {"store", "bench/store.ex", JsonRules.Bench.Store},
     {"fact", "bench/fact_cost.ex", JsonRules.Bench.FactCost},
     {"slowfacts", "bench/slow_facts.ex", JsonRules.Bench.SlowFacts},
-    {"engines", "bench/engines.ex", JsonRules.Bench.Engines}
+    {"engines", "bench/engines.ex", JsonRules.Bench.Engines},
+    {"matrix", "bench/matrix.ex", JsonRules.Bench.Matrix}
   ]
 
   @impl true

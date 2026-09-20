@@ -156,6 +156,86 @@ defmodule JsonRules.Bench.Data do
     end)
   end
 
+  @doc """
+  A rule for the `matrix` suite: a cheap head (highest condition priority, so it is
+  evaluated first) that fails and decides its `all` early, followed by a **deep,
+  priority-varied tail** — a nested `any` group plus leaf conditions, each with a
+  distinct priority. Under short-circuit the whole tail is skipped; under
+  `strict: true` every leaf is evaluated.
+
+  `speed` selects the tail fact: `:slow` → the expensive `fraud_score`, `:fast` → a
+  cheap `risk` constant.
+  """
+  def deep_rule(speed) do
+    tail = tail_condition(speed)
+
+    %{
+      priority: 10,
+      event: %{type: "flag.matrix"},
+      conditions: %{
+        all: [
+          %{
+            fact: "transaction",
+            path: "$.amount",
+            operator: "greaterThanInclusive",
+            value: 10_000_000,
+            priority: 100
+          },
+          %{any: [Map.put(tail, :priority, 1), Map.put(tail, :priority, 2)]},
+          Map.put(tail, :priority, 3),
+          Map.put(tail, :priority, 4),
+          Map.put(tail, :priority, 5)
+        ]
+      }
+    }
+  end
+
+  @doc """
+  Builds a `matrix` engine of `count` `deep_rule/1` rules.
+
+  Options: `:store`, `:speed` (`:slow`/`:fast`), `:cache` (boolean, applied to the
+  dynamic tail fact), `:work` (cost of the slow fact).
+  """
+  def matrix_engine(count, opts \\ []) do
+    store = Keyword.get(opts, :store, :pure)
+    speed = Keyword.get(opts, :speed, :slow)
+    cache = Keyword.get(opts, :cache, true)
+    work = Keyword.get(opts, :work, @slow_work)
+
+    engine = Engine.new(store: store)
+
+    engine =
+      Enum.reduce(
+        [
+          {
+            "transaction",
+            %{
+              "amount" => 2_500,
+              "currency" => "USD",
+              "country" => "BR",
+              "channel" => "mobile",
+              "velocity" => 7
+            },
+            []
+          },
+          {"fraud_score", slow_fact(work), [cache: cache]},
+          {"risk", fn _params, _almanac -> 42 end, [cache: cache]}
+        ],
+        engine,
+        fn {id, definition, fact_opts}, acc ->
+          Engine.add_fact(acc, id, definition, fact_opts)
+        end
+      )
+
+    Enum.reduce(1..count, engine, fn i, acc ->
+      {:ok, acc, _rule} = Engine.add_rule(acc, deep_rule(speed) |> Map.put(:name, "rule_#{i}"))
+      acc
+    end)
+  end
+
+  defp tail_condition(:slow), do: %{fact: "fraud_score", operator: "lessThan", value: 0.9}
+  defp tail_condition(:fast), do: %{fact: "risk", operator: "lessThan", value: 100}
+
   # The slow fact does real work (`work` integer additions) and then returns the
   # same value as the fast fact (0.82), so the fast and slow engines evaluate the
   # identical rules and differ only in computation cost.

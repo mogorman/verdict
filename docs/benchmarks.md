@@ -7,11 +7,13 @@ development tool only: the benchmark code lives in `bench/` and the task in
 
 ```sh
 mix deps.get
-mix bench             # all four suites
+mix bench             # all six suites
 mix bench schedule    # just one suite
 mix bench store
 mix bench fact
 mix bench slowfacts
+mix bench engines
+mix bench matrix
 ```
 
 Each suite prints a Benchee console table and writes two artifacts to
@@ -165,6 +167,84 @@ Three advantages fall out of the matrix:
 
 > Same 24-core machine as above; re-run `mix bench engines` on your own before
 > choosing an engine.
+
+### `mix bench matrix`
+
+The other suites each isolate a single axis; this one **crosses them** so the
+interactions show. Every rule uses the same **deep, priority-varied, nested**
+condition tree (`JsonRules.Bench.Data.deep_rule/1`): a cheap head (highest condition
+priority) that decides its `all` early, followed by a nested `any` group plus leaf
+conditions at distinct priorities. Axes:
+
+- **store** — `:pure` / `:genserver` / `:ets` (how rules and facts are held);
+- **schedule** — `:serial` vs `:parallel`;
+- **short-circuit** — `strict: false` (a decided `all`/`any` stops early) vs
+  `strict: true` (every condition is evaluated);
+- **fact speed** — cheap (`:fast`) vs expensive (`:slow`) tail fact;
+- **fact caching** — cached vs `cache: false` (recomputed on every reference).
+
+Two groups at scale 200:
+
+**A — storage × run mode** (slow, uncached facts) — "different storage and way things
+are run":
+
+| store | short-circuit | schedule | avg |
+| --- | --- | --- | ---: |
+| `:pure` | on | serial | 1.60 ms |
+| `:pure` | on | parallel | 5.16 ms |
+| `:pure` | off | serial | 371.9 ms |
+| `:pure` | off | parallel | 31.3 ms |
+| `:genserver` | on | serial | 2.19 ms |
+| `:genserver` | on | parallel | 5.48 ms |
+| `:genserver` | off | serial | 352.7 ms |
+| `:genserver` | off | parallel | 30.7 ms |
+| `:ets` | on | serial | 1.95 ms |
+| `:ets` | on | parallel | 8.22 ms |
+| `:ets` | off | serial | 368.3 ms |
+| `:ets` | off | parallel | 32.1 ms |
+
+**B — fact cost × caching** (pure store) — speed and caching only matter when the
+tail is actually evaluated:
+
+| speed | cache | short-circuit | schedule | avg |
+| --- | --- | --- | --- | ---: |
+| fast | cached | on | serial | 1.57 ms |
+| fast | uncached | on | serial | 1.57 ms |
+| fast | cached | on | parallel | 3.57 ms |
+| fast | uncached | on | parallel | 3.54 ms |
+| fast | cached | off | serial | 4.09 ms |
+| fast | uncached | off | serial | 4.08 ms |
+| fast | cached | off | parallel | 5.05 ms |
+| fast | uncached | off | parallel | 4.27 ms |
+| slow | cached | on | serial | 1.49 ms |
+| slow | uncached | on | serial | 1.51 ms |
+| slow | cached | on | parallel | 3.45 ms |
+| slow | uncached | on | parallel | 2.98 ms |
+| slow | cached | off | serial | 4.80 ms |
+| slow | uncached | off | serial | 456.0 ms |
+| slow | cached | off | parallel | 5.35 ms |
+| slow | uncached | off | parallel | 30.8 ms |
+
+What the full matrix shows:
+
+- **Short-circuit is the dominant lever** — skipping the deep tail collapses the worst
+  case (456 ms → 1.5 ms, ~300x).
+- **Caching only matters for an expensive fact that is actually evaluated** —
+  `strict` + `slow` + `serial`: cached 4.8 ms vs uncached 456 ms (~95x). Under
+  short-circuit, or with a `fast` fact, caching changes nothing.
+- **Fact speed is irrelevant under short-circuit** — the tail is never evaluated, so
+  `fast` and `slow` land within noise of each other.
+- **Schedule**: `:serial` wins under short-circuit (little to overlap); `:parallel`
+  rescues `strict` + `slow` + `uncached` (456 ms → 31 ms, ~15x) by overlapping the
+  recomputation.
+- **Store**: `:pure` is fastest; `:genserver`/`:ets` are ~1.2-1.3x slower under
+  `serial` + short-circuit. Under `:parallel` the store difference vanishes (all
+  ~31-32 ms at `strict`) — parallel hides the round-trip overhead.
+
+> Same 24-core machine as above. The extreme cells (`strict` + `slow` + `uncached`)
+> take hundreds of ms per run, so Benchee collects only a few samples there — read
+> those as order-of-magnitude, not precise. Re-run `mix bench matrix` on your own
+> before choosing a configuration.
 
 ## Tuning
 
