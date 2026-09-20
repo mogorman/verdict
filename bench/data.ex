@@ -157,49 +157,66 @@ defmodule JsonRules.Bench.Data do
   end
 
   @doc """
-  A rule for the `matrix` suite: a cheap head (highest condition priority, so it is
-  evaluated first) that fails and decides its `all` early, followed by a **deep,
-  priority-varied tail** — a nested `any` group plus leaf conditions, each with a
-  distinct priority. Under short-circuit the whole tail is skipped; under
+  The four rule **shapes** for the `matrix` suite, as `{label, width, depth}`:
+
+    * `width` — number of tail (leaf) conditions: 4 (narrow) or 16 (wide);
+    * `depth` — `:flat` (all leaves sit directly under the top `all`) or `:nested`
+      (the leaves are grouped into nested `any` sub-trees).
+
+  So the shapes are narrow×flat, wide×flat, narrow×nested, and wide×nested — the
+  "shallow / wide / deep / wide-deep" rule geometries. All share the same cheap
+  deciding head, so they differ only in the tail's width and nesting.
+  """
+  def shapes do
+    [
+      {:shallow, 4, :flat},
+      {:wide, 16, :flat},
+      {:nested, 4, :nested},
+      {:wide_nested, 16, :nested}
+    ]
+  end
+
+  @doc """
+  A `matrix` rule of a given `shape` (`:shallow`/`:wide`/`:nested`/`:wide_nested`).
+
+  A cheap head (highest condition priority, so it is evaluated first) fails and
+  decides the `all` early; the tail is the shape's leaves at distinct priorities,
+  laid out `:flat` or `:nested`. Under short-circuit the tail is skipped; under
   `strict: true` every leaf is evaluated.
 
   `speed` selects the tail fact: `:slow` → the expensive `fraud_score`, `:fast` → a
   cheap `risk` constant.
   """
-  def deep_rule(speed) do
-    tail = tail_condition(speed)
+  def matrix_rule(shape, speed) do
+    {width, depth} = shape_dims(shape)
+
+    head = %{
+      fact: "transaction",
+      path: "$.amount",
+      operator: "greaterThanInclusive",
+      value: 10_000_000,
+      priority: 100
+    }
 
     %{
       priority: 10,
       event: %{type: "flag.matrix"},
-      conditions: %{
-        all: [
-          %{
-            fact: "transaction",
-            path: "$.amount",
-            operator: "greaterThanInclusive",
-            value: 10_000_000,
-            priority: 100
-          },
-          %{any: [Map.put(tail, :priority, 1), Map.put(tail, :priority, 2)]},
-          Map.put(tail, :priority, 3),
-          Map.put(tail, :priority, 4),
-          Map.put(tail, :priority, 5)
-        ]
-      }
+      conditions: %{all: [head | build_body(width, depth, speed)]}
     }
   end
 
   @doc """
-  Builds a `matrix` engine of `count` `deep_rule/1` rules.
+  Builds a `matrix` engine of `count` rules of a given `shape`.
 
-  Options: `:store`, `:speed` (`:slow`/`:fast`), `:cache` (boolean, applied to the
-  dynamic tail fact), `:work` (cost of the slow fact).
+  Options: `:store`, `:shape` (`:shallow`/`:wide`/`:nested`/`:wide_nested`),
+  `:speed` (`:slow`/`:fast`), `:cache` (boolean, applied to the dynamic tail fact),
+  `:work` (cost of the slow fact).
   """
   def matrix_engine(count, opts \\ []) do
     store = Keyword.get(opts, :store, :pure)
     speed = Keyword.get(opts, :speed, :slow)
     cache = Keyword.get(opts, :cache, true)
+    shape = Keyword.get(opts, :shape, :shallow)
     work = Keyword.get(opts, :work, @slow_work)
 
     engine = Engine.new(store: store)
@@ -228,9 +245,30 @@ defmodule JsonRules.Bench.Data do
       )
 
     Enum.reduce(1..count, engine, fn i, acc ->
-      {:ok, acc, _rule} = Engine.add_rule(acc, deep_rule(speed) |> Map.put(:name, "rule_#{i}"))
+      {:ok, acc, _rule} =
+        Engine.add_rule(acc, matrix_rule(shape, speed) |> Map.put(:name, "rule_#{i}"))
+
       acc
     end)
+  end
+
+  defp build_body(width, :flat, speed) do
+    for i <- 1..width, do: Map.put(tail_condition(speed), :priority, i)
+  end
+
+  # `:nested` groups the leaves into `any` pairs, adding a nesting level while
+  # keeping the same number of leaves and the same priorities.
+  defp build_body(width, :nested, speed) do
+    for pair <- Enum.chunk_by(1..width, fn i -> div(i - 1, 2) end) do
+      %{any: Enum.map(pair, fn i -> Map.put(tail_condition(speed), :priority, i) end)}
+    end
+  end
+
+  defp shape_dims(shape) do
+    case List.keyfind(shapes(), shape, 0) do
+      {_label, width, depth} -> {width, depth}
+      nil -> raise "unknown matrix shape: #{inspect(shape)}"
+    end
   end
 
   defp tail_condition(:slow), do: %{fact: "fraud_score", operator: "lessThan", value: 0.9}

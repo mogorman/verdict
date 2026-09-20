@@ -170,81 +170,258 @@ Three advantages fall out of the matrix:
 
 ### `mix bench matrix`
 
-The other suites each isolate a single axis; this one **crosses them** so the
-interactions show. Every rule uses the same **deep, priority-varied, nested**
-condition tree (`JsonRules.Bench.Data.deep_rule/1`): a cheap head (highest condition
-priority) that decides its `all` early, followed by a nested `any` group plus leaf
-conditions at distinct priorities. Axes:
+The other suites each isolate a single axis; this one **crosses all of them** — 192
+scenarios at scale 100 — so their interactions show:
 
 - **store** — `:pure` / `:genserver` / `:ets` (how rules and facts are held);
 - **schedule** — `:serial` vs `:parallel`;
 - **short-circuit** — `strict: false` (a decided `all`/`any` stops early) vs
   `strict: true` (every condition is evaluated);
 - **fact speed** — cheap (`:fast`) vs expensive (`:slow`) tail fact;
-- **fact caching** — cached vs `cache: false` (recomputed on every reference).
+- **fact caching** — cached vs `cache: false` (recomputed on every reference);
+- **rule shape** — `JsonRules.Bench.Data.shapes/0`: a cheap deciding head over a tail
+  of leaves at distinct priorities, in four geometries — `shallow` (narrow × flat,
+  4 leaves), `wide` (wide × flat, 16 leaves), `nested` (narrow × nested, 4 leaves in
+  `any` pairs), `wide_nested` (wide × nested, 16 leaves in `any` pairs). Flat vs
+  nested keep the same number of leaves (identical leaf cost) and differ only in
+  nesting depth; narrow vs wide differ in leaf count.
 
-Two groups at scale 200:
+The result is one table per shape; rows within each are
+`store × schedule × short-circuit × speed × cache` (48 rows).
 
-**A — storage × run mode** (slow, uncached facts) — "different storage and way things
-are run":
+#### `shallow` — narrow × flat
 
-| store | short-circuit | schedule | avg |
-| --- | --- | --- | ---: |
-| `:pure` | on | serial | 1.60 ms |
-| `:pure` | on | parallel | 5.16 ms |
-| `:pure` | off | serial | 371.9 ms |
-| `:pure` | off | parallel | 31.3 ms |
-| `:genserver` | on | serial | 2.19 ms |
-| `:genserver` | on | parallel | 5.48 ms |
-| `:genserver` | off | serial | 352.7 ms |
-| `:genserver` | off | parallel | 30.7 ms |
-| `:ets` | on | serial | 1.95 ms |
-| `:ets` | on | parallel | 8.22 ms |
-| `:ets` | off | serial | 368.3 ms |
-| `:ets` | off | parallel | 32.1 ms |
+| store | schedule | short-circuit | speed | cache | avg (ms) |
+| --- | --- | --- | --- | --- | ---: |
+| `:pure` | serial | on | fast | cached | 0.805 |
+| `:pure` | serial | on | fast | uncached | 0.749 |
+| `:pure` | serial | on | slow | cached | 0.792 |
+| `:pure` | serial | on | slow | uncached | 1.035 |
+| `:pure` | serial | off | fast | cached | 1.828 |
+| `:pure` | serial | off | fast | uncached | 1.694 |
+| `:pure` | serial | off | slow | cached | 2.369 |
+| `:pure` | serial | off | slow | uncached | 145.058 |
+| `:pure` | parallel | on | fast | cached | 2.651 |
+| `:pure` | parallel | on | fast | uncached | 2.696 |
+| `:pure` | parallel | on | slow | cached | 1.817 |
+| `:pure` | parallel | on | slow | uncached | 1.786 |
+| `:pure` | parallel | off | fast | cached | 4.848 |
+| `:pure` | parallel | off | fast | uncached | 2.306 |
+| `:pure` | parallel | off | slow | cached | 3.121 |
+| `:pure` | parallel | off | slow | uncached | 13.527 |
+| `:genserver` | serial | on | fast | cached | 0.979 |
+| `:genserver` | serial | on | fast | uncached | 0.947 |
+| `:genserver` | serial | on | slow | cached | 0.890 |
+| `:genserver` | serial | on | slow | uncached | 0.958 |
+| `:genserver` | serial | off | fast | cached | 1.749 |
+| `:genserver` | serial | off | fast | uncached | 1.798 |
+| `:genserver` | serial | off | slow | cached | 2.459 |
+| `:genserver` | serial | off | slow | uncached | 144.081 |
+| `:genserver` | parallel | on | fast | cached | 1.657 |
+| `:genserver` | parallel | on | fast | uncached | 1.807 |
+| `:genserver` | parallel | on | slow | cached | 1.644 |
+| `:genserver` | parallel | on | slow | uncached | 1.768 |
+| `:genserver` | parallel | off | fast | cached | 2.560 |
+| `:genserver` | parallel | off | fast | uncached | 2.349 |
+| `:genserver` | parallel | off | slow | cached | 3.068 |
+| `:genserver` | parallel | off | slow | uncached | 14.336 |
+| `:ets` | serial | on | fast | cached | 1.287 |
+| `:ets` | serial | on | fast | uncached | 1.320 |
+| `:ets` | serial | on | slow | cached | 1.304 |
+| `:ets` | serial | on | slow | uncached | 1.244 |
+| `:ets` | serial | off | fast | cached | 2.632 |
+| `:ets` | serial | off | fast | uncached | 2.191 |
+| `:ets` | serial | off | slow | cached | 3.425 |
+| `:ets` | serial | off | slow | uncached | 149.940 |
+| `:ets` | parallel | on | fast | cached | 1.831 |
+| `:ets` | parallel | on | fast | uncached | 1.917 |
+| `:ets` | parallel | on | slow | cached | 1.842 |
+| `:ets` | parallel | on | slow | uncached | 2.012 |
+| `:ets` | parallel | off | fast | cached | 2.593 |
+| `:ets` | parallel | off | fast | uncached | 2.471 |
+| `:ets` | parallel | off | slow | cached | 3.176 |
+| `:ets` | parallel | off | slow | uncached | 14.779 |
 
-**B — fact cost × caching** (pure store) — speed and caching only matter when the
-tail is actually evaluated:
+#### `wide` — wide × flat
 
-| speed | cache | short-circuit | schedule | avg |
-| --- | --- | --- | --- | ---: |
-| fast | cached | on | serial | 1.57 ms |
-| fast | uncached | on | serial | 1.57 ms |
-| fast | cached | on | parallel | 3.57 ms |
-| fast | uncached | on | parallel | 3.54 ms |
-| fast | cached | off | serial | 4.09 ms |
-| fast | uncached | off | serial | 4.08 ms |
-| fast | cached | off | parallel | 5.05 ms |
-| fast | uncached | off | parallel | 4.27 ms |
-| slow | cached | on | serial | 1.49 ms |
-| slow | uncached | on | serial | 1.51 ms |
-| slow | cached | on | parallel | 3.45 ms |
-| slow | uncached | on | parallel | 2.98 ms |
-| slow | cached | off | serial | 4.80 ms |
-| slow | uncached | off | serial | 456.0 ms |
-| slow | cached | off | parallel | 5.35 ms |
-| slow | uncached | off | parallel | 30.8 ms |
+| store | schedule | short-circuit | speed | cache | avg (ms) |
+| --- | --- | --- | --- | --- | ---: |
+| `:pure` | serial | on | fast | cached | 0.911 |
+| `:pure` | serial | on | fast | uncached | 0.944 |
+| `:pure` | serial | on | slow | cached | 0.962 |
+| `:pure` | serial | on | slow | uncached | 0.943 |
+| `:pure` | serial | off | fast | cached | 4.547 |
+| `:pure` | serial | off | fast | uncached | 4.818 |
+| `:pure` | serial | off | slow | cached | 5.682 |
+| `:pure` | serial | off | slow | uncached | 562.714 |
+| `:pure` | parallel | on | fast | cached | 1.901 |
+| `:pure` | parallel | on | fast | uncached | 1.983 |
+| `:pure` | parallel | on | slow | cached | 2.046 |
+| `:pure` | parallel | on | slow | uncached | 2.057 |
+| `:pure` | parallel | off | fast | cached | 4.869 |
+| `:pure` | parallel | off | fast | uncached | 3.774 |
+| `:pure` | parallel | off | slow | cached | 9.300 |
+| `:pure` | parallel | off | slow | uncached | 48.758 |
+| `:genserver` | serial | on | fast | cached | 1.486 |
+| `:genserver` | serial | on | fast | uncached | 1.476 |
+| `:genserver` | serial | on | slow | cached | 1.596 |
+| `:genserver` | serial | on | slow | uncached | 1.697 |
+| `:genserver` | serial | off | fast | cached | 4.788 |
+| `:genserver` | serial | off | fast | uncached | 4.921 |
+| `:genserver` | serial | off | slow | cached | 6.084 |
+| `:genserver` | serial | off | slow | uncached | 564.671 |
+| `:genserver` | parallel | on | fast | cached | 1.931 |
+| `:genserver` | parallel | on | fast | uncached | 1.796 |
+| `:genserver` | parallel | on | slow | cached | 3.722 |
+| `:genserver` | parallel | on | slow | uncached | 2.045 |
+| `:genserver` | parallel | off | fast | cached | 5.268 |
+| `:genserver` | parallel | off | fast | uncached | 4.195 |
+| `:genserver` | parallel | off | slow | cached | 10.902 |
+| `:genserver` | parallel | off | slow | uncached | 49.204 |
+| `:ets` | serial | on | fast | cached | 1.250 |
+| `:ets` | serial | on | fast | uncached | 1.476 |
+| `:ets` | serial | on | slow | cached | 1.252 |
+| `:ets` | serial | on | slow | uncached | 1.260 |
+| `:ets` | serial | off | fast | cached | 12.770 |
+| `:ets` | serial | off | fast | uncached | 5.922 |
+| `:ets` | serial | off | slow | cached | 6.718 |
+| `:ets` | serial | off | slow | uncached | 626.851 |
+| `:ets` | parallel | on | fast | cached | 3.221 |
+| `:ets` | parallel | on | fast | uncached | 2.834 |
+| `:ets` | parallel | on | slow | cached | 3.286 |
+| `:ets` | parallel | on | slow | uncached | 2.630 |
+| `:ets` | parallel | off | fast | cached | 5.391 |
+| `:ets` | parallel | off | fast | uncached | 4.609 |
+| `:ets` | parallel | off | slow | cached | 7.704 |
+| `:ets` | parallel | off | slow | uncached | 47.421 |
+
+#### `nested` — narrow × nested
+
+| store | schedule | short-circuit | speed | cache | avg (ms) |
+| --- | --- | --- | --- | --- | ---: |
+| `:pure` | serial | on | fast | cached | 0.723 |
+| `:pure` | serial | on | fast | uncached | 0.806 |
+| `:pure` | serial | on | slow | cached | 0.750 |
+| `:pure` | serial | on | slow | uncached | 1.328 |
+| `:pure` | serial | off | fast | cached | 1.756 |
+| `:pure` | serial | off | fast | uncached | 3.035 |
+| `:pure` | serial | off | slow | cached | 2.285 |
+| `:pure` | serial | off | slow | uncached | 143.349 |
+| `:pure` | parallel | on | fast | cached | 1.559 |
+| `:pure` | parallel | on | fast | uncached | 1.627 |
+| `:pure` | parallel | on | slow | cached | 1.596 |
+| `:pure` | parallel | on | slow | uncached | 1.649 |
+| `:pure` | parallel | off | fast | cached | 2.923 |
+| `:pure` | parallel | off | fast | uncached | 2.347 |
+| `:pure` | parallel | off | slow | cached | 2.854 |
+| `:pure` | parallel | off | slow | uncached | 23.152 |
+| `:genserver` | serial | on | fast | cached | 0.956 |
+| `:genserver` | serial | on | fast | uncached | 0.974 |
+| `:genserver` | serial | on | slow | cached | 0.946 |
+| `:genserver` | serial | on | slow | uncached | 0.918 |
+| `:genserver` | serial | off | fast | cached | 2.048 |
+| `:genserver` | serial | off | fast | uncached | 1.898 |
+| `:genserver` | serial | off | slow | cached | 2.579 |
+| `:genserver` | serial | off | slow | uncached | 141.542 |
+| `:genserver` | parallel | on | fast | cached | 1.634 |
+| `:genserver` | parallel | on | fast | uncached | 1.570 |
+| `:genserver` | parallel | on | slow | cached | 3.039 |
+| `:genserver` | parallel | on | slow | uncached | 1.624 |
+| `:genserver` | parallel | off | fast | cached | 2.570 |
+| `:genserver` | parallel | off | fast | uncached | 2.109 |
+| `:genserver` | parallel | off | slow | cached | 3.136 |
+| `:genserver` | parallel | off | slow | uncached | 13.932 |
+| `:ets` | serial | on | fast | cached | 1.391 |
+| `:ets` | serial | on | fast | uncached | 1.298 |
+| `:ets` | serial | on | slow | cached | 1.212 |
+| `:ets` | serial | on | slow | uncached | 1.217 |
+| `:ets` | serial | off | fast | cached | 2.273 |
+| `:ets` | serial | off | fast | uncached | 2.383 |
+| `:ets` | serial | off | slow | cached | 2.877 |
+| `:ets` | serial | off | slow | uncached | 143.272 |
+| `:ets` | parallel | on | fast | cached | 1.944 |
+| `:ets` | parallel | on | fast | uncached | 2.023 |
+| `:ets` | parallel | on | slow | cached | 2.232 |
+| `:ets` | parallel | on | slow | uncached | 2.637 |
+| `:ets` | parallel | off | fast | cached | 3.179 |
+| `:ets` | parallel | off | fast | uncached | 2.951 |
+| `:ets` | parallel | off | slow | cached | 3.843 |
+| `:ets` | parallel | off | slow | uncached | 15.190 |
+
+#### `wide_nested` — wide × nested
+
+| store | schedule | short-circuit | speed | cache | avg (ms) |
+| --- | --- | --- | --- | --- | ---: |
+| `:pure` | serial | on | fast | cached | 0.792 |
+| `:pure` | serial | on | fast | uncached | 0.805 |
+| `:pure` | serial | on | slow | cached | 0.777 |
+| `:pure` | serial | on | slow | uncached | 0.802 |
+| `:pure` | serial | off | fast | cached | 4.766 |
+| `:pure` | serial | off | fast | uncached | 8.622 |
+| `:pure` | serial | off | slow | cached | 6.068 |
+| `:pure` | serial | off | slow | uncached | 566.010 |
+| `:pure` | parallel | on | fast | cached | 1.740 |
+| `:pure` | parallel | on | fast | uncached | 1.952 |
+| `:pure` | parallel | on | slow | cached | 1.799 |
+| `:pure` | parallel | on | slow | uncached | 1.856 |
+| `:pure` | parallel | off | fast | cached | 5.325 |
+| `:pure` | parallel | off | fast | uncached | 3.733 |
+| `:pure` | parallel | off | slow | cached | 6.393 |
+| `:pure` | parallel | off | slow | uncached | 50.345 |
+| `:genserver` | serial | on | fast | cached | 0.975 |
+| `:genserver` | serial | on | fast | uncached | 0.881 |
+| `:genserver` | serial | on | slow | cached | 1.048 |
+| `:genserver` | serial | on | slow | uncached | 0.911 |
+| `:genserver` | serial | off | fast | cached | 7.042 |
+| `:genserver` | serial | off | fast | uncached | 5.248 |
+| `:genserver` | serial | off | slow | cached | 6.868 |
+| `:genserver` | serial | off | slow | uncached | 557.658 |
+| `:genserver` | parallel | on | fast | cached | 3.053 |
+| `:genserver` | parallel | on | fast | uncached | 2.121 |
+| `:genserver` | parallel | on | slow | cached | 2.232 |
+| `:genserver` | parallel | on | slow | uncached | 2.126 |
+| `:genserver` | parallel | off | fast | cached | 8.780 |
+| `:genserver` | parallel | off | fast | uncached | 4.331 |
+| `:genserver` | parallel | off | slow | cached | 6.805 |
+| `:genserver` | parallel | off | slow | uncached | 51.983 |
+| `:ets` | serial | on | fast | cached | 1.439 |
+| `:ets` | serial | on | fast | uncached | 1.338 |
+| `:ets` | serial | on | slow | cached | 3.186 |
+| `:ets` | serial | on | slow | uncached | 1.402 |
+| `:ets` | serial | off | fast | cached | 12.235 |
+| `:ets` | serial | off | fast | uncached | 7.431 |
+| `:ets` | serial | off | slow | cached | 8.130 |
+| `:ets` | serial | off | slow | uncached | 639.938 |
+| `:ets` | parallel | on | fast | cached | 3.511 |
+| `:ets` | parallel | on | fast | uncached | 2.579 |
+| `:ets` | parallel | on | slow | cached | 2.884 |
+| `:ets` | parallel | on | slow | uncached | 6.106 |
+| `:ets` | parallel | off | fast | cached | 13.122 |
+| `:ets` | parallel | off | fast | uncached | 10.347 |
+| `:ets` | parallel | off | slow | cached | 7.461 |
+| `:ets` | parallel | off | slow | uncached | 55.265 |
 
 What the full matrix shows:
 
-- **Short-circuit is the dominant lever** — skipping the deep tail collapses the worst
-  case (456 ms → 1.5 ms, ~300x).
-- **Caching only matters for an expensive fact that is actually evaluated** —
-  `strict` + `slow` + `serial`: cached 4.8 ms vs uncached 456 ms (~95x). Under
-  short-circuit, or with a `fast` fact, caching changes nothing.
-- **Fact speed is irrelevant under short-circuit** — the tail is never evaluated, so
-  `fast` and `slow` land within noise of each other.
-- **Schedule**: `:serial` wins under short-circuit (little to overlap); `:parallel`
-  rescues `strict` + `slow` + `uncached` (456 ms → 31 ms, ~15x) by overlapping the
-  recomputation.
-- **Store**: `:pure` is fastest; `:genserver`/`:ets` are ~1.2-1.3x slower under
-  `serial` + short-circuit. Under `:parallel` the store difference vanishes (all
-  ~31-32 ms at `strict`) — parallel hides the round-trip overhead.
+- **Short-circuit is the dominant lever** — with it on, every shape/store/schedule
+  collapses to ~0.7-1.5 ms (the tail is never evaluated); turning it off (`strict`)
+  is where all the cost lives.
+- **Width dominates when the tail is evaluated** — under `strict` + `slow` +
+  `uncached` + `serial`, wide is ~4x slower than narrow (562-640 ms vs 143-150 ms).
+  Width is irrelevant under short-circuit.
+- **Nesting ≈ flat at equal leaf count** — `nested` ≈ `shallow`, `wide_nested` ≈
+  `wide`; the `any` grouping adds only structural overhead, not leaf cost.
+- **Caching only matters for a slow fact that is evaluated** — `strict` + `slow` +
+  `serial`: ~5 ms cached vs 143-640 ms uncached (~30-100x).
+- **`:parallel` rescues `strict` + `slow` + `uncached`** (~10-11x) by overlapping the
+  recomputation, but *loses* under short-circuit (little to overlap).
+- **Store**: `:pure` < `:genserver` < `:ets` under short-circuit/serial; the gap
+  shrinks as the fact cost dominates and vanishes under `:parallel`.
 
-> Same 24-core machine as above. The extreme cells (`strict` + `slow` + `uncached`)
-> take hundreds of ms per run, so Benchee collects only a few samples there — read
-> those as order-of-magnitude, not precise. Re-run `mix bench matrix` on your own
-> before choosing a configuration.
+> Same 24-core machine as above. The extreme cells (`strict` + `slow` + `uncached`,
+> especially `wide`/`wide_nested`) take hundreds of ms per run, so Benchee collects
+> only a few samples there — read those as order-of-magnitude. Re-run `mix bench
+> matrix` on your own before choosing a configuration.
 
 ## Tuning
 

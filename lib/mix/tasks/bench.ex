@@ -8,7 +8,7 @@ defmodule Mix.Tasks.Bench do
        mix bench fact       # fact cost (constant vs dynamic)
        mix bench slowfacts  # realistic dataset: slow facts × schedule × scale
        mix bench engines    # schedule × short-circuit: the advantage of each engine
-       mix bench matrix     # full matrix: store × schedule × short-circuit × speed × caching
+       mix bench matrix     # full matrix: store × schedule × short-circuit × speed × caching × shape
 
   The suites live in `bench/` and are required on demand, so the benchmark
   tooling is never compiled into the shipped library. Benchee results (CSV and
