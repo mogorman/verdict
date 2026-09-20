@@ -1,104 +1,144 @@
 defmodule JsonRules.Almanac do
   @moduledoc """
-  Per-run evaluation context.
+  Per-run evaluation context and mutable run state.
 
-  The almanac owns the registered facts and a cache of computed fact values.
-  The cache is an in-memory ETS table created for the duration of a single run
-  and shared (read/write) so that:
+  The almanac owns the registered facts, a cache of computed fact values, and the
+  run's control state (whether it has been stopped, plus any runtime facts added
+  mid-run). A run obtains a value with `fact_value/3`, which computes and caches on
+  a miss, and must release the almanac with `destroy/1` when the run is complete.
 
-    * a fact referenced by several conditions is computed only once;
-    * a fact that calls other facts (fact dependencies) can read cached values;
-    * (Phase 2) parallel evaluation of a priority bucket shares one cache.
+  ## Backends
 
-  Callers obtain a value with `fact_value/3`, which computes and caches on a
-  miss. The almanac must be released with `destroy/1` when the run is complete.
+  The almanac is a thin, public API over a pluggable **backend** that stores the
+  mutable run state. Both backends expose the same functions (`create/2`,
+  `fact_value/3`, `fact_priority/2`, `facts/1`, `add_runtime_fact/3`, `stop/1`,
+  `stopped?/1`, `destroy/1`), taking the almanac itself (so a fact that depends on
+  other facts can recurse through this API):
+
+    * `JsonRules.Almanac.ProcessLocal` (default) – the state lives in the calling
+      process's dictionary. Used by the `:serial` engine. A fact referenced by
+      several conditions (or facts) is computed once.
+    * `JsonRules.Almanac.Shared` – the state lives in a short-lived GenServer, so
+      it is shared across the worker processes of a `:parallel` run.
+
+  `new/3` selects the backend via the `:backend` option (`:process_local`, the
+  default, or `:shared`). The `JsonRules.Evaluator` passes `:shared` when the
+  engine runs `:parallel`.
   """
-  alias JsonRules.UndefinedFactError
+  alias JsonRules.{Almanac.ProcessLocal, Almanac.Shared, Fact}
 
-  defstruct [:cache, :defs, allow_undefined_facts: false]
+  defstruct backend: nil, handle: nil, allow_undefined_facts: false
+
+  # A map of fact names (string or atom) to plain values, e.g. the runtime facts
+  # passed to `JsonRules.Engine.run/3`.
+  @type fact_map :: %{(String.t() | atom()) => term()}
+
+  @type backend :: :process_local | :shared
 
   @type t :: %__MODULE__{
-          cache: :ets.tid(),
-          defs: map(),
+          backend: module(),
+          handle: term(),
           allow_undefined_facts: boolean()
         }
 
   @doc """
   Builds a fresh almanac for a run.
 
-  `defs` are the facts registered on the engine; `runtime_facts` (e.g. the map
-  passed to `JsonRules.Engine.run/3`) override them for this run only.
+  `defs` are the facts registered on the engine (a `JsonRules.Fact.registry()`);
+  `runtime_facts` (e.g. the map passed to `JsonRules.Engine.run/3`) override them
+  for this run only.
+
+  ## Options
+
+  * `:backend` – `:process_local` (default) or `:shared`.
+  * `:allow_undefined_facts` – default `false`. When `true`, a missing fact
+    reads as `nil` instead of raising.
   """
-  @spec new(map() | nil, map() | nil, keyword()) :: t()
+  @spec new(Fact.registry() | nil, fact_map() | nil, keyword()) :: t()
   def new(defs, runtime_facts \\ %{}, opts \\ []) do
-    defs = normalize(defs)
-    # runtime facts override registered facts of the same name for this run
-    defs = Map.merge(defs, normalize(runtime_facts))
-    name = String.to_atom("almanac_cache_#{:erlang.unique_integer([:positive])}")
-    cache = :ets.new(name, [:set, :public])
+    backend_name = Keyword.get(opts, :backend, :process_local)
+    backend = backend_module(backend_name)
+    merged_defs = Map.merge(normalize_registry(defs), normalize_runtime(runtime_facts))
+    handle = backend.create(merged_defs, opts)
 
     %__MODULE__{
-      cache: cache,
-      defs: defs,
+      backend: backend,
+      handle: handle,
       allow_undefined_facts: Keyword.get(opts, :allow_undefined_facts, false)
     }
   end
 
-  @doc "Releases the almanac's cache. Safe to call once per run."
+  @doc "Releases the almanac's run state. Safe to call once per run."
   @spec destroy(t()) :: :ok
-  def destroy(%__MODULE__{cache: cache}) do
-    :ets.delete(cache)
-    :ok
+  def destroy(%__MODULE__{} = almanac), do: almanac.backend.destroy(almanac)
+
+  @doc """
+  Computes the value of `fact_id` for the given `params`, caching it for the run
+  unless the fact was registered with `cache: false`.
+
+  A cached value is reused for the same `{fact_id, params}`. An unregistered
+  fact either raises `JsonRules.UndefinedFactError` or (when
+  `allow_undefined_facts` is set) evaluates to `nil`.
+  """
+  @spec fact_value(t(), String.t(), map() | nil) :: term()
+  def fact_value(%__MODULE__{} = almanac, fact_id, params \\ %{}) do
+    almanac.backend.fact_value(almanac, fact_id, params)
   end
 
   @doc """
-  Computes (and caches) the value of `fact_id` for the given `params`.
-
-  A fact is a constant (any term) or a function of `(params, almanac)` (or
-  `(params)`). The result is cached under `{fact_id, params}`.
+  Returns the registered priority of `fact_id` (used to order a rule's leaf
+  conditions), defaulting to `1` when the fact is not registered.
   """
-  @spec fact_value(t(), term(), map() | nil) :: term()
-  def fact_value(%__MODULE__{} = almanac, fact_id, params \\ %{}) do
-    params = params || %{}
-    key = {fact_id, params}
-
-    case :ets.lookup(almanac.cache, key) do
-      [{^key, value}] ->
-        value
-
-      [] ->
-        value = compute(Map.get(almanac.defs, fact_id), fact_id, params, almanac)
-        :ets.insert(almanac.cache, {key, value})
-        value
-    end
-  end
+  @spec fact_priority(t(), String.t() | atom()) :: integer()
+  def fact_priority(%__MODULE__{} = almanac, fact_id),
+    do: almanac.backend.fact_priority(almanac, fact_id)
 
   @doc "Returns the `{fact_id, value}` pairs computed so far during the run."
-  @spec facts(t()) :: [{term(), term()}]
-  def facts(%__MODULE__{cache: cache}) do
-    cache
-    |> :ets.tab2list()
-    |> Enum.map(fn {{fact_id, _params}, value} -> {fact_id, value} end)
+  @spec facts(t()) :: [{String.t(), term()}]
+  def facts(%__MODULE__{} = almanac), do: almanac.backend.facts(almanac)
+
+  @doc """
+  Adds a constant fact to the almanac mid-run, visible to subsequent fact
+  lookups. Used by event handlers to feed a value to later rules.
+  """
+  @spec add_runtime_fact(t(), String.t() | atom(), term()) :: t()
+  def add_runtime_fact(%__MODULE__{} = almanac, fact_id, value) do
+    almanac.backend.add_runtime_fact(almanac, fact_id, value)
+    almanac
   end
 
-  # Fact ids are normalised to strings so `%{x: 1}` and `%{"x" => 1}` are
-  # equivalent; condition facts are always strings.
-  defp normalize(nil), do: %{}
-  defp normalize(map) when is_map(map), do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
-
-  defp compute(nil, fact_id, _params, almanac) do
-    if almanac.allow_undefined_facts do
-      nil
-    else
-      raise UndefinedFactError, fact: fact_id
-    end
+  @doc "Stops the run: no further rules will be evaluated and no further events emitted."
+  @spec stop(t()) :: t()
+  def stop(%__MODULE__{} = almanac) do
+    almanac.backend.stop(almanac)
+    almanac
   end
 
-  defp compute(fun, _fact_id, params, almanac) when is_function(fun, 2),
-    do: fun.(params, almanac)
+  @doc "True once `stop/1` has been called for this run."
+  @spec stopped?(t()) :: boolean()
+  def stopped?(%__MODULE__{} = almanac), do: almanac.backend.stopped?(almanac)
 
-  defp compute(fun, _fact_id, params, _almanac) when is_function(fun, 1),
-    do: fun.(params)
+  defp backend_module(:process_local), do: ProcessLocal
+  defp backend_module(:shared), do: Shared
 
-  defp compute(value, _fact_id, _params, _almanac), do: value
+  defp backend_module(other) do
+    raise ArgumentError, "unknown almanac backend: #{inspect(other)}"
+  end
+
+  # Registered facts are keyed by id; ids are normalised to strings so
+  # `%{x: 1}` and `%{"x" => 1}` are equivalent.
+  defp normalize_registry(nil), do: %{}
+
+  defp normalize_registry(map) when is_map(map),
+    do: Map.new(map, fn {k, v} -> {to_string(k), v} end)
+
+  # Runtime facts are plain values; wrap each as a constant fact.
+  defp normalize_runtime(nil), do: %{}
+
+  defp normalize_runtime(map) when is_map(map) do
+    Map.new(map, fn {k, v} ->
+      id = to_string(k)
+      {id, Fact.new(id, v)}
+    end)
+  end
 end
