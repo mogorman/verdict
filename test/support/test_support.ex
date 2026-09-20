@@ -16,7 +16,8 @@ defmodule JsonRules.TestSupport do
           attrs,
           :conditions,
           %{all: [%{fact: "age", operator: "lessThan", value: 45}]}
-        )
+        ),
+      extra: Map.get(attrs, :extra, %{})
     }
   end
 
@@ -45,5 +46,76 @@ defmodule JsonRules.TestSupport do
   @doc "Reads a counter Agent."
   def count({:ok, pid}) do
     Agent.get(pid, & &1)
+  end
+
+  @doc "Starts a collector Agent; pass the pid to a callback to record its invocations."
+  def start_collector do
+    Agent.start(fn -> [] end)
+  end
+
+  @doc "Records an item in a collector Agent."
+  def collect({:ok, pid}, item) do
+    Agent.update(pid, fn list -> [item | list] end)
+  end
+
+  @doc "Reads all items from a collector Agent, in the order they were recorded."
+  def collected({:ok, pid}) do
+    Agent.get(pid, & &1) |> Enum.reverse()
+  end
+end
+
+defmodule JsonRules.LogCapture do
+  @moduledoc false
+
+  # Captures `Logger` output for the logging integration tests by registering a
+  # temporary `:logger_handler` that forwards each event to a private Agent.
+  #
+  # Each `start/0` registers a uniquely-named handler, so captures do not collide
+  # by id. The `:logger` handlers are node-global, however, so tests that capture
+  # must not overlap in time (keep them in a non-async module and call `stop/1`).
+
+  defmodule Handler do
+    @moduledoc false
+    @behaviour :logger_handler
+
+    @impl true
+    def log(event, config) do
+      case config[:config] && config[:config][:collector] do
+        collector when is_pid(collector) ->
+          item = {event[:level], message(event[:msg])}
+          Agent.update(collector, fn list -> [item | list] end)
+
+        _ ->
+          :ok
+      end
+    end
+
+    defp message({:string, text}), do: text
+    defp message(other), do: other
+  end
+
+  @doc "Starts capturing `Logger` output; returns a handle for `messages/1` and `stop/1`."
+  def start do
+    {:ok, agent} = Agent.start_link(fn -> [] end)
+    id = String.to_atom("jr_logcap_#{System.unique_integer([:positive])}")
+    cfg = %{filter_default: :log, filters: [], config: %{collector: agent}}
+
+    case :logger.add_handler(id, Handler, cfg) do
+      :ok ->
+        %{id: id, agent: agent}
+
+      {:error, reason} ->
+        Agent.stop(agent)
+        raise "failed to add log capture handler: #{inspect(reason)}"
+    end
+  end
+
+  @doc "Returns the captured `{level, message}` tuples, in emission order."
+  def messages(%{agent: agent}), do: Agent.get(agent, &Enum.reverse/1)
+
+  @doc "Removes the capture handler and stops the collector."
+  def stop(%{id: id, agent: agent}) do
+    :logger.remove_handler(id)
+    Agent.stop(agent)
   end
 end

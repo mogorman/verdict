@@ -7,6 +7,6 @@ defmodule JsonRules.UndefinedFactError do
 
   @impl true
   def message(%{fact: fact}) do
-    "undefined fact: #{inspect(fact)}"
+    "Undefined fact: #{fact}"
   end
 end

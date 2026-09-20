@@ -3,6 +3,7 @@ defmodule JsonRules.EngineTest do
   use ExUnit.Case, async: true
 
   alias JsonRules.{Engine, RunResult}
+  alias JsonRules.TestSupport
 
   describe "example 01: hello world" do
     test "emits the event when the fact matches" do
@@ -171,7 +172,7 @@ defmodule JsonRules.EngineTest do
         Engine.add_rule(e2, %{event: %{type: "mid"}, priority: 5, conditions: single(1)})
 
       %RunResult{results: results} = Engine.run(e3, %{x: 1})
-      assert Enum.map(results, & &1.event.type) == ["high", "mid", "low"]
+      assert Enum.map(results, fn rr -> rr.rule.event.type end) == ["high", "mid", "low"]
     end
 
     defp single(value), do: %{all: [%{fact: "x", operator: "equal", value: value}]}
@@ -202,6 +203,22 @@ defmodule JsonRules.EngineTest do
     end
   end
 
+  describe "errors" do
+    test "a fact that raises surfaces the error out of run/3" do
+      engine =
+        Engine.new()
+        |> Engine.add_fact("age", fn _p, _a ->
+          raise "problem occurred"
+        end)
+        |> TestSupport.add_rule(%{
+          conditions: %{any: [%{fact: "age", operator: "greaterThanInclusive", value: 21}]},
+          event: %{type: "generic"}
+        })
+
+      assert_raise RuntimeError, ~r/problem occurred/, fn -> Engine.run(engine) end
+    end
+  end
+
   describe "remove_rule/2" do
     test "removes a rule by name" do
       {:ok, engine, _} =
@@ -226,13 +243,22 @@ defmodule JsonRules.EngineTest do
       assert %Engine{store_module: JsonRules.Store.Pure} = Engine.new()
     end
 
-    test "unknown backends raise" do
-      assert_raise ArgumentError, fn -> Engine.new(store: :nope) end
+    test "genserver starts a GenServer-backed store" do
+      assert %Engine{store_module: JsonRules.Store.GenServer, store: pid} =
+               Engine.new(store: :genserver)
+
+      assert is_pid(pid)
     end
 
-    test "phase-2 backends raise a clear error" do
-      assert_raise ArgumentError, ~r/genserver/, fn -> Engine.new(store: :genserver) end
-      assert_raise ArgumentError, ~r/ets/, fn -> Engine.new(store: :ets) end
+    test "ets starts an ETS-backed store" do
+      assert %Engine{store_module: JsonRules.Store.Ets, store: pid} =
+               Engine.new(store: :ets)
+
+      assert is_pid(pid)
+    end
+
+    test "unknown backends raise" do
+      assert_raise ArgumentError, fn -> Engine.new(store: :nope) end
     end
   end
 end

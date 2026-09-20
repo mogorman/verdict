@@ -2,15 +2,19 @@ defmodule JsonRules.Evaluator do
   @moduledoc """
   The pure evaluation core.
 
-  `run/4` evaluates a set of rules against a set of facts and returns a
-  `JsonRules.RunResult`. Evaluation is organised as a **priority-bucketed
-  executor**: rules are grouped by priority and evaluated highest-priority
-  first, and within each rule the children of every `all`/`any` node are
-  likewise grouped by priority. This MVP is **serial** (and **strict**: every
-  bucket is fully evaluated); `:parallel` scheduling and the short-circuit
-  option are added in Phase 2 on top of the same executor.
+   `run/4` evaluates a set of rules against a set of facts and returns a
+   `JsonRules.RunResult`. Rules are grouped into priority buckets and the buckets
+   run highest-priority first. Each rule's condition tree is evaluated by
+   `JsonRules.Evaluation` into a pure `Ecto.Changeset` report; the run collects
+   the events of the valid rules, the failure events of the invalid ones, and the
+   per-rule reports (in priority order).
+
+   Scheduling is selected by the `:schedule` option: `:serial` evaluates a bucket's
+   rules one at a time; `:parallel` runs them concurrently over a shared almanac
+   (bounded by `:parallel_concurrency`). Short-circuiting of a rule's conditions
+   (and its `strict` override) live in `JsonRules.Evaluation`.
   """
-  alias JsonRules.{Almanac, Condition, Operators, Rule, RuleResult, RunResult, UnsupportedError}
+  alias JsonRules.{Almanac, Evaluation, EvaluationContext, Log, Rule, RuleResult, RunResult}
 
   @type opts :: keyword()
 
@@ -18,113 +22,198 @@ defmodule JsonRules.Evaluator do
   Evaluates `rules` (a list of `JsonRules.Rule`) using `defs` (registered facts)
   and `runtime_facts` (facts supplied for this run).
 
-  `opts` may include `:allow_undefined_facts`.
+  `opts` may include `:allow_undefined_facts`, `:strict`, `:path_resolver` and
+  `:allow_undefined_conditions`, plus the engine's `:operators` and
+  `:conditions` registries (added by `JsonRules.Engine.run/3`).
   """
-  @spec run([Rule.t()], map(), map(), opts()) :: RunResult.t()
+  @spec run([Rule.t()], JsonRules.Fact.registry(), Almanac.fact_map(), opts()) :: RunResult.t()
   def run(rules, defs, runtime_facts, opts) do
-    almanac = Almanac.new(defs, runtime_facts, opts)
+    schedule = Keyword.get(opts, :schedule, :serial)
+    log = Keyword.get(opts, :log)
+    almanac = Almanac.new(defs, runtime_facts, Keyword.put(opts, :backend, backend_for(schedule)))
+
+    context = %EvaluationContext{
+      almanac: almanac,
+      operators: Keyword.get(opts, :operators, %{}),
+      decorators: Keyword.get(opts, :decorators, %{}),
+      conditions: Keyword.get(opts, :conditions, %{}),
+      path_resolver: Keyword.get(opts, :path_resolver),
+      allow_undefined_conditions: Keyword.get(opts, :allow_undefined_conditions, false),
+      strict: Keyword.get(opts, :strict, false),
+      log: log
+    }
+
+    callbacks = Keyword.get(opts, :callbacks, %{})
+    rule_callbacks = Keyword.get(opts, :rule_callbacks, %{})
+    replace_facts = Keyword.get(opts, :replace_facts_in_event_params, false)
+    buckets = rules |> Enum.group_by(& &1.priority) |> by_priority_desc()
+
+    Log.debug(log, fn -> "run started: #{length(rules)} rules, schedule: #{inspect(schedule)}" end)
 
     try do
-      groups = rules |> Enum.group_by(& &1.priority) |> by_priority_desc()
+      results =
+        case schedule do
+          :parallel ->
+            concurrency = Keyword.get(opts, :parallel_concurrency, System.schedulers_online())
 
-      {events, failure_events, results, failure_results} =
-        Enum.reduce(groups, {[], [], [], []}, fn {_priority, bucket}, acc ->
-          Enum.reduce(bucket, acc, fn rule, acc -> evaluate_rule(rule, almanac, acc) end)
-        end)
+            run_parallel(
+              buckets,
+              context,
+              replace_facts,
+              callbacks,
+              rule_callbacks,
+              almanac,
+              concurrency
+            )
 
-      %RunResult{
-        events: Enum.reverse(events),
-        failure_events: Enum.reverse(failure_events),
-        results: Enum.reverse(results),
-        failure_results: Enum.reverse(failure_results)
-      }
+          _ ->
+            run_serial(buckets, context, replace_facts, callbacks, rule_callbacks, almanac)
+        end
+
+      run_result = from_results(results)
+
+      Log.info(log, fn ->
+        "run finished: #{length(run_result.events)} succeeded, #{length(run_result.failure_events)} failed"
+      end)
+
+      run_result
     after
       Almanac.destroy(almanac)
     end
   end
 
-  defp evaluate_rule(rule, almanac, {events, failure_events, results, failure_results}) do
-    result = eval_tree(rule.conditions, almanac)
+  defp backend_for(:parallel), do: :shared
+  defp backend_for(_), do: :process_local
 
-    rule_result = %RuleResult{
-      id: rule.id,
-      name: rule.name,
-      priority: rule.priority,
-      result: result,
-      event: rule.event
-    }
+  # Serial: rules are evaluated one at a time in priority order. A callback may
+  # stop the run (skipping every remaining rule) or add a runtime fact that later
+  # rules can read.
+  defp run_serial(buckets, context, replace_facts, callbacks, rule_callbacks, almanac) do
+    log = context.log
 
-    if result do
-      {[rule.event | events], failure_events, [rule_result | results], failure_results}
+    buckets
+    |> Enum.map(&elem(&1, 1))
+    |> List.flatten()
+    |> Enum.reduce_while([], fn rule, acc ->
+      if Almanac.stopped?(almanac) do
+        Log.warning(log, "run stopped")
+        {:halt, acc}
+      else
+        rule_result = evaluate_rule(rule, context, replace_facts)
+        Log.info(log, fn -> rule_line(rule, rule_result) end)
+        emit_callbacks(callbacks, rule_result, almanac, log)
+        emit_callbacks(rule_callbacks[rule.id] || %{}, rule_result, almanac, log)
+        {:cont, [rule_result | acc]}
+      end
+    end)
+    |> Enum.reverse()
+  end
+
+  defp rule_line(rule, rule_result) do
+    "rule #{inspect(rule.name)} (priority #{rule.priority}): #{if rule_result.valid?, do: "fired", else: "did not fire"}"
+  end
+
+  # Parallel: each priority bucket's rules run concurrently (bounded by
+  # `concurrency`); buckets still run one after another. A callback may stop the
+  # run (skipping every later bucket) or add a runtime fact that later buckets
+  # read. Results keep their submission order within a bucket (`ordered: true`).
+  defp run_parallel(
+         buckets,
+         context,
+         replace_facts,
+         callbacks,
+         rule_callbacks,
+         almanac,
+         concurrency
+       ) do
+    log = context.log
+
+    Enum.reduce_while(buckets, [], fn {_priority, bucket}, acc ->
+      if Almanac.stopped?(almanac) do
+        Log.warning(log, "run stopped")
+        {:halt, acc}
+      else
+        results =
+          bucket
+          |> Task.async_stream(
+            fn rule ->
+              # Each worker catches its own errors so a failing rule cannot crash
+              # the run's consumer through a task link. The error is carried out as
+              # data and re-raised (in bucket order) once the results are collected.
+              try do
+                rule_result = evaluate_rule(rule, context, replace_facts)
+                Log.info(log, fn -> rule_line(rule, rule_result) end)
+                emit_callbacks(callbacks, rule_result, almanac, log)
+                emit_callbacks(rule_callbacks[rule.id] || %{}, rule_result, almanac, log)
+                {:ok, rule_result}
+              rescue
+                e -> {:error, e, __STACKTRACE__}
+              end
+            end,
+            max_concurrency: concurrency,
+            ordered: true
+          )
+          |> Enum.to_list()
+          |> Enum.map(fn
+            {:ok, {:ok, rule_result}} -> rule_result
+            {:ok, {:error, e, stack}} -> reraise(e, stack)
+            other -> raise "unexpected task result: #{inspect(other)}"
+          end)
+
+        {:cont, acc ++ results}
+      end
+    end)
+  end
+
+  defp evaluate_rule(rule, context, replace_facts) do
+    changeset = Evaluation.eval(rule.conditions, context)
+    event = if replace_facts, do: resolve_event_params(rule.event, context), else: rule.event
+    %RuleResult{rule: rule, changeset: changeset, event: event, valid?: changeset.valid?}
+  end
+
+  # Fires a rule's events. A successful rule emits "success" (with the full
+  # event) and then its own event type (with the event params); a failed rule
+  # emits only "failure".
+  defp emit_callbacks(
+         callbacks,
+         %RuleResult{event: event, valid?: valid?} = rule_result,
+         almanac,
+         log
+       ) do
+    if valid? do
+      emit(callbacks, "success", event, almanac, rule_result, log)
+      emit(callbacks, event.type, event.params, almanac, rule_result, log)
     else
-      {events, [rule.event | failure_events], results, [rule_result | failure_results]}
+      emit(callbacks, "failure", event, almanac, rule_result, log)
     end
   end
 
-  # --- condition-tree evaluation -------------------------------------------
+  defp emit(callbacks, type, first, almanac, rule_result, log) do
+    cbs = callbacks[to_string(type)] || []
 
-  @spec eval_tree(Condition.t(), Almanac.t()) :: boolean()
-  def eval_tree(%Condition{kind: :leaf} = node, almanac), do: eval_leaf(node, almanac)
-
-  def eval_tree(%Condition{kind: :not, child: child}, almanac),
-    do: not eval_tree(child, almanac)
-
-  def eval_tree(%Condition{kind: :all, children: children}, almanac),
-    do: eval_bool(:all, children, almanac)
-
-  def eval_tree(%Condition{kind: :any, children: children}, almanac),
-    do: eval_bool(:any, children, almanac)
-
-  def eval_tree(%Condition{kind: :ref, ref: ref}, _almanac) do
-    raise UnsupportedError, feature: "condition references (#{inspect(ref)})"
+    Enum.each(cbs, fn cb ->
+      Log.debug(log, fn -> "callback \"#{type}\" (rule #{rule_result.rule.name})" end)
+      cb.(first, almanac, rule_result)
+    end)
   end
 
-  # Strict, serial: evaluate every child in priority order, then combine.
-  defp eval_bool(:all, children, almanac) do
-    children
-    |> buckets()
-    |> Enum.map(fn bucket -> Enum.map(bucket, &eval_tree(&1, almanac)) end)
-    |> List.flatten()
-    |> Enum.all?()
+  # Resolves fact references in an event's params (see `replace_facts_in_event_params`).
+  defp resolve_event_params(%{params: params} = event, context) when is_map(params) do
+    resolved = Map.new(params, fn {k, v} -> {k, Evaluation.resolve_value(v, context)} end)
+    %{event | params: resolved}
   end
 
-  defp eval_bool(:any, children, almanac) do
-    children
-    |> buckets()
-    |> Enum.map(fn bucket -> Enum.map(bucket, &eval_tree(&1, almanac)) end)
-    |> List.flatten()
-    |> Enum.any?()
+  defp resolve_event_params(event, _context), do: event
+
+  defp from_results(results) do
+    %RunResult{
+      events: Enum.filter(results, & &1.valid?) |> Enum.map(& &1.event),
+      failure_events: Enum.reject(results, & &1.valid?) |> Enum.map(& &1.event),
+      results: results
+    }
   end
 
-  defp eval_leaf(
-         %Condition{
-           fact: fact,
-           operator: operator,
-           value: value,
-           params: params,
-           path: path
-         },
-         almanac
-       ) do
-    fact_value = Almanac.fact_value(almanac, fact, params)
-    actual = if path, do: resolve_path!(fact_value, path), else: fact_value
-    Operators.get(operator).(actual, value)
-  end
-
-  defp resolve_path!(_fact_value, path) do
-    raise UnsupportedError, feature: "condition paths (#{inspect(path)})"
-  end
-
-  # Group a list of priority-bearing items into buckets, highest priority first.
   defp by_priority_desc(grouped) do
-    grouped
-    |> Enum.sort_by(fn {priority, _} -> -priority end)
-  end
-
-  defp buckets(children) do
-    children
-    |> Enum.group_by(& &1.priority)
-    |> by_priority_desc()
-    |> Enum.map(fn {_priority, bucket} -> bucket end)
+    Enum.sort_by(grouped, fn {priority, _} -> -priority end)
   end
 end

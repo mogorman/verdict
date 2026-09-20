@@ -58,20 +58,20 @@ defmodule JsonRules.Types.Condition do
 
   @doc "Converts a `t:JsonRules.Condition/0` tree back into a JSON-shaped map."
   @spec to_map(Condition.t()) :: map()
-  def to_map(%Condition{kind: :all, children: children, priority: priority}) do
-    with_priority(%{"all" => Enum.map(children || [], &to_map/1)}, priority)
+  def to_map(%Condition{kind: :all, children: children, priority: priority, extra: extra}) do
+    with_extra(with_priority(%{"all" => Enum.map(children || [], &to_map/1)}, priority), extra)
   end
 
-  def to_map(%Condition{kind: :any, children: children, priority: priority}) do
-    with_priority(%{"any" => Enum.map(children || [], &to_map/1)}, priority)
+  def to_map(%Condition{kind: :any, children: children, priority: priority, extra: extra}) do
+    with_extra(with_priority(%{"any" => Enum.map(children || [], &to_map/1)}, priority), extra)
   end
 
-  def to_map(%Condition{kind: :not, child: child, priority: priority}) do
-    with_priority(%{"not" => to_map(child)}, priority)
+  def to_map(%Condition{kind: :not, child: child, priority: priority, extra: extra}) do
+    with_extra(with_priority(%{"not" => to_map(child)}, priority), extra)
   end
 
-  def to_map(%Condition{kind: :ref, ref: ref, priority: priority}) do
-    with_priority(%{"condition" => ref}, priority)
+  def to_map(%Condition{kind: :ref, ref: ref, priority: priority, extra: extra}) do
+    with_extra(with_priority(%{"condition" => ref}, priority), extra)
   end
 
   def to_map(%Condition{
@@ -81,12 +81,13 @@ defmodule JsonRules.Types.Condition do
         value: value,
         path: path,
         params: params,
-        priority: priority
+        priority: priority,
+        extra: extra
       }) do
     base = %{"fact" => fact, "operator" => operator, "value" => value}
     base = if path, do: Map.put(base, "path", path), else: base
     base = if params, do: Map.put(base, "params", params), else: base
-    with_priority(base, priority)
+    with_extra(with_priority(base, priority), extra)
   end
 
   # ---------------------------------------------------------------------------
@@ -109,7 +110,13 @@ defmodule JsonRules.Types.Condition do
       list when is_list(list) ->
         case map_ok(list, &build_node/1) do
           {:ok, children} ->
-            {:ok, %Condition{kind: kind, children: children, priority: priority(map)}}
+            {:ok,
+             %Condition{
+               kind: kind,
+               children: children,
+               priority: priority(map) || 1,
+               extra: extra(map)
+             }}
 
           {:error, reason} ->
             {:error, reason}
@@ -124,8 +131,12 @@ defmodule JsonRules.Types.Condition do
     case get(map, "not") do
       inner when is_map(inner) ->
         case build_node(inner) do
-          {:ok, child} -> {:ok, %Condition{kind: :not, child: child, priority: priority(map)}}
-          {:error, reason} -> {:error, reason}
+          {:ok, child} ->
+            {:ok,
+             %Condition{kind: :not, child: child, priority: priority(map) || 1, extra: extra(map)}}
+
+          {:error, reason} ->
+            {:error, reason}
         end
 
       other ->
@@ -136,7 +147,7 @@ defmodule JsonRules.Types.Condition do
   defp ref_node(map) do
     case get(map, "condition") do
       name when is_binary(name) and name != "" ->
-        {:ok, %Condition{kind: :ref, ref: name, priority: priority(map)}}
+        {:ok, %Condition{kind: :ref, ref: name, priority: priority(map) || 1, extra: extra(map)}}
 
       other ->
         {:error,
@@ -157,17 +168,32 @@ defmodule JsonRules.Types.Condition do
          value: get(map, "value"),
          path: path,
          params: params,
-         priority: priority(map)
+         priority: priority(map),
+         extra: extra(map)
        }}
     end
   end
 
-  defp priority(map) do
-    get(map, "priority") || 1
-  end
+  # A node's explicit priority, or `nil` when the map does not set one. Boolean
+  # and reference nodes are defaulted to 1 by their builders; a leaf keeps `nil`
+  # so its evaluation order can be dictated by its fact's priority.
+  defp priority(map), do: get(map, "priority")
 
+  defp with_priority(map, nil), do: map
   defp with_priority(map, 1), do: map
   defp with_priority(map, priority), do: Map.put(map, "priority", priority)
+
+  # A node's optional `extra` map carries arbitrary custom properties.
+  defp extra(map) do
+    case get(map, "extra") do
+      nil -> %{}
+      value when is_map(value) -> value
+      _ -> %{}
+    end
+  end
+
+  defp with_extra(map, extra) when map_size(extra) == 0, do: map
+  defp with_extra(map, extra), do: Map.put(map, "extra", extra)
 
   defp has?(map, key) do
     Map.has_key?(map, key) or Map.has_key?(map, String.to_atom(key))

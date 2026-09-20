@@ -22,18 +22,18 @@ defmodule JsonRules do
   The store is selectable at engine construction so overhead scales with the
   workload:
 
-    * `:pure`      – the engine is a plain struct; no process. (MVP)
-    * `:genserver` – a stateful store in a GenServer's process state. (Phase 2)
-    * `:ets`       – a GenServer backed by an ETS table for fast lookups. (Phase 2)
+    * `:pure`      – the engine is a plain struct; no process. (default)
+    * `:genserver` – a stateful store in a GenServer's process state.
+    * `:ets`       – a GenServer with rules/facts in public ETS tables.
 
   ## Serial or parallel evaluation
 
   Scheduling is orthogonal to the store and selectable via the `:schedule`
   option:
 
-    * `:serial`   – evaluate priority buckets one at a time. (MVP, default)
+    * `:serial`   – evaluate priority buckets one at a time. (default)
     * `:parallel` – run every item in a priority bucket concurrently, then move
-      to the next bucket. (Phase 2)
+      to the next bucket.
 
   Both rules and conditions carry a `priority` (default 1); higher priority
   runs first. Facts are computed lazily and cached in a per-run

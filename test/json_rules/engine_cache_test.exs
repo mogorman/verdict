@@ -8,12 +8,16 @@ defmodule JsonRules.EngineCacheTest do
 
   @conditions %{any: [%{fact: "age", operator: "greaterThanInclusive", value: 21}]}
 
-  defp engine_with_age_fact(counter) do
+  defp engine_with_age_fact(counter, fact_opts \\ []) do
     Engine.new()
-    |> Engine.add_fact("age", fn _params, _almanac ->
-      TestSupport.inc(counter)
-      22
-    end)
+    |> Engine.add_fact(
+      "age",
+      fn _params, _almanac ->
+        TestSupport.inc(counter)
+        22
+      end,
+      fact_opts
+    )
     |> TestSupport.add_rule(%{
       conditions: @conditions,
       event: %{type: "setDrinkingFlag"},
@@ -40,12 +44,11 @@ defmodule JsonRules.EngineCacheTest do
     assert TestSupport.count(counter) == 1
   end
 
-  @tag :phase_2
   test "allows caching to be turned off per fact (fact option)" do
-    # Requires the per-fact `cache: false` option (Phase 2). When three rules reference
-    # the same uncached fact, the definition must run three times.
+    # With `cache: false`, three rules referencing the same fact recompute it
+    # each time, so the definition runs three times.
     counter = TestSupport.start_counter()
-    engine = engine_with_age_fact(counter)
+    engine = engine_with_age_fact(counter, cache: false)
 
     %RunResult{events: events} = Engine.run(engine)
     assert length(events) == 3

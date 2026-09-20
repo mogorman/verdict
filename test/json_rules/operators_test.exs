@@ -5,30 +5,37 @@ defmodule JsonRules.OperatorsTest do
   alias JsonRules.Operators
 
   test "equal / notEqual" do
-    assert Operators.get("equal").(1, 1)
-    refute Operators.get("equal").(1, 2)
-    refute Operators.get("notEqual").(1, 1)
-    assert Operators.get("notEqual").(1, 2)
+    assert {true, msg} = Operators.get("equal").(1, 1)
+    assert is_binary(msg) and msg != ""
+    assert {false, _} = Operators.get("equal").(1, 2)
+    assert {false, _} = Operators.get("notEqual").(1, 1)
+    assert {true, _} = Operators.get("notEqual").(1, 2)
   end
 
   test "ordering operators" do
-    assert Operators.get("lessThan").(1, 2)
-    refute Operators.get("lessThan").(2, 1)
-    assert Operators.get("lessThanInclusive").(1, 1)
-    assert Operators.get("greaterThan").(2, 1)
-    refute Operators.get("greaterThan").(1, 2)
-    assert Operators.get("greaterThanInclusive").(1, 1)
+    assert {true, _} = Operators.get("lessThan").(1, 2)
+    assert {false, _} = Operators.get("lessThan").(2, 1)
+    assert {true, _} = Operators.get("lessThanInclusive").(1, 1)
+    assert {true, _} = Operators.get("greaterThan").(2, 1)
+    assert {false, _} = Operators.get("greaterThan").(1, 2)
+    assert {true, _} = Operators.get("greaterThanInclusive").(1, 1)
   end
 
   test "array operators" do
-    assert Operators.get("in").(1, [1, 2, 3])
-    refute Operators.get("in").(4, [1, 2, 3])
-    assert Operators.get("notIn").(4, [1, 2, 3])
-    refute Operators.get("notIn").(1, [1, 2, 3])
-    assert Operators.get("contains").([1, 2, 3], 2)
-    refute Operators.get("contains").([1, 2, 3], 4)
-    assert Operators.get("doesNotContain").([1, 2, 3], 4)
-    refute Operators.get("doesNotContain").([1, 2, 3], 2)
+    assert {true, _} = Operators.get("in").(1, [1, 2, 3])
+    assert {false, _} = Operators.get("in").(4, [1, 2, 3])
+    assert {true, _} = Operators.get("notIn").(4, [1, 2, 3])
+    assert {false, _} = Operators.get("notIn").(1, [1, 2, 3])
+    assert {true, _} = Operators.get("contains").([1, 2, 3], 2)
+    assert {false, _} = Operators.get("contains").([1, 2, 3], 4)
+    assert {true, _} = Operators.get("doesNotContain").([1, 2, 3], 4)
+    assert {false, _} = Operators.get("doesNotContain").([1, 2, 3], 2)
+  end
+
+  test "explanations describe the comparison" do
+    assert {false, msg} = Operators.get("greaterThanInclusive").(500, 1000)
+    assert msg =~ "500"
+    assert msg =~ "1000"
   end
 
   test "known/0 lists the ten built-in operators" do

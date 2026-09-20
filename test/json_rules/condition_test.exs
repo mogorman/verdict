@@ -33,12 +33,17 @@ defmodule JsonRules.ConditionTest do
                ConditionType.from_map(%{all: [%{fact: "a", operator: "equal", value: 1}]})
     end
 
-    test "defaults priority to 1 and honours an explicit priority" do
-      assert {:ok, %Condition{priority: 1}} =
+    test "a leaf has no priority by default; an explicit priority is kept" do
+      assert {:ok, %Condition{priority: nil}} =
                ConditionType.from_map(%{fact: "a", operator: "equal", value: 1})
 
       assert {:ok, %Condition{priority: 7}} =
                ConditionType.from_map(%{fact: "a", operator: "equal", value: 1, priority: 7})
+    end
+
+    test "a boolean node defaults its priority to 1" do
+      assert {:ok, %Condition{priority: 1}} =
+               ConditionType.from_map(%{all: [%{fact: "a", operator: "equal", value: 1}]})
     end
 
     test "a condition reference becomes a :ref node" do
@@ -84,6 +89,65 @@ defmodule JsonRules.ConditionTest do
 
       assert {:ok, tree} = ConditionType.from_map(original)
       assert ConditionType.to_map(tree) == original
+    end
+  end
+
+  describe "ConditionType Ecto.Type callbacks" do
+    test "type, embed_as, load, dump, and equal?" do
+      assert ConditionType.type() == :map
+      assert ConditionType.embed_as(:column) == :map
+
+      {:ok, tree} = ConditionType.from_map(%{"fact" => "a", "operator" => "equal", "value" => 1})
+      assert {:ok, ^tree} = ConditionType.load(tree)
+
+      assert {:ok, %{"fact" => "a", "operator" => "equal", "value" => 1}} =
+               ConditionType.dump(tree)
+
+      assert ConditionType.equal?(tree, tree)
+      refute ConditionType.equal?(tree, %{})
+    end
+
+    test "cast/1 passes a Condition through and rejects nil or non-maps" do
+      {:ok, tree} = ConditionType.from_map(%{"fact" => "a", "operator" => "equal", "value" => 1})
+      assert {:ok, ^tree} = ConditionType.cast(tree)
+      assert {:ok, _} = ConditionType.cast(%{"fact" => "a", "operator" => "equal", "value" => 1})
+      assert {:error, _} = ConditionType.cast(nil)
+      assert {:error, _} = ConditionType.cast("nope")
+    end
+  end
+
+  describe "ConditionType from_map/to_map edges" do
+    test "a leaf with path and params round-trips" do
+      original = %{
+        "fact" => "obj",
+        "operator" => "equal",
+        "value" => 1,
+        "path" => "$.a",
+        "params" => %{"p" => 1}
+      }
+
+      assert {:ok, tree} = ConditionType.from_map(original)
+      assert ConditionType.to_map(tree) == original
+    end
+
+    test "a node with an extra map round-trips" do
+      original = %{
+        "all" => [%{"fact" => "a", "operator" => "equal", "value" => 1}],
+        "extra" => %{"owner" => "me"}
+      }
+
+      assert {:ok, tree} = ConditionType.from_map(original)
+      assert ConditionType.to_map(tree) == original
+    end
+
+    test "rejects an empty reference, a non-string path, and non-map params" do
+      assert {:error, _} = ConditionType.from_map(%{"condition" => ""})
+
+      assert {:error, _} =
+               ConditionType.from_map(%{"fact" => "a", "operator" => "equal", "path" => 12})
+
+      assert {:error, _} =
+               ConditionType.from_map(%{"fact" => "a", "operator" => "equal", "params" => 12})
     end
   end
 
@@ -141,15 +205,16 @@ defmodule JsonRules.ConditionTest do
       assert error_for(changeset, :priority)
     end
 
-    test "rejects an unknown operator" do
+    test "accepts an unknown operator (existence is checked at run time)" do
+      # Operator existence is validated during evaluation, where the engine's
+      # custom operators are known — not at cast time.
       changeset =
         Rule.changeset(%Rule{}, %{
           event: %{type: "e"},
           conditions: %{all: [%{fact: "x", operator: "nope", value: 1}]}
         })
 
-      refute changeset.valid?
-      assert error_for(changeset, :conditions)
+      assert changeset.valid?
     end
 
     test "rejects a leaf as the root" do
@@ -161,6 +226,27 @@ defmodule JsonRules.ConditionTest do
 
       refute changeset.valid?
       assert error_for(changeset, :conditions)
+    end
+
+    test "rejects a non-positive priority on a condition" do
+      changeset =
+        Rule.changeset(%Rule{}, %{
+          event: %{type: "e"},
+          conditions: %{all: [%{fact: "x", operator: "equal", value: 1, priority: 0}]}
+        })
+
+      refute changeset.valid?
+      assert error_for(changeset, :conditions)
+    end
+
+    test "keeps an existing id instead of generating one" do
+      changeset =
+        Rule.changeset(%Rule{id: "keep-me"}, %{
+          event: %{type: "e"},
+          conditions: %{all: [%{fact: "x", operator: "equal", value: 1}]}
+        })
+
+      assert Ecto.Changeset.apply_changes(changeset).id == "keep-me"
     end
   end
 

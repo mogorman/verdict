@@ -30,7 +30,7 @@ defmodule JsonRules.EngineRulePriorityTest do
 
     %RunResult{results: results} = Engine.run(engine)
 
-    assert Enum.map(results, & &1.event.type) ==
+    assert Enum.map(results, fn rr -> rr.rule.event.type end) ==
              ["highPriorityEvent", "midPriorityEvent", "lowestPriorityEvent"]
   end
 

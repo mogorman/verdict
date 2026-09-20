@@ -24,6 +24,21 @@ defmodule JsonRules.Event do
     |> validate_required([:type])
   end
 
+  @doc """
+  Converts the event back into a JSON-compatible map (the inverse of
+  `changeset/2`). Emits string keys; an empty `params` map is omitted.
+  """
+  @spec to_map(t()) :: map()
+  def to_map(%__MODULE__{} = event) do
+    base = %{"type" => event.type}
+
+    if map_size(event.params || %{}) == 0 do
+      base
+    else
+      Map.put(base, "params", event.params)
+    end
+  end
+
   @type t :: %__MODULE__{
           type: String.t() | nil,
           params: map()

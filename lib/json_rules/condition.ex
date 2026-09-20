@@ -13,9 +13,11 @@ defmodule JsonRules.Condition do
     * `:ref`  – a reference to a named condition registered on the engine
       (Phase 2).
 
-  Every node carries a `priority` (default `1`). Higher-priority nodes run
-  before lower-priority ones; nodes of equal priority are evaluated together
-  (in parallel when the engine is scheduled with `:parallel`).
+  Boolean nodes (`all`/`any`/`not`) carry a `priority` (default `1`). A leaf
+  carries an *optional* `priority`; when it is absent, the leaf's evaluation
+  order is dictated by its fact's registered priority (see
+  `JsonRules.Fact`), defaulting to `1`. Higher-priority nodes run before
+  lower-priority ones; nodes of equal priority are evaluated together.
 
   Instances of this struct are produced by `JsonRules.Types.Condition` from a
   JSON-shaped map, and consumed by `JsonRules.Evaluator`.
@@ -32,7 +34,8 @@ defmodule JsonRules.Condition do
             value: nil,
             path: nil,
             params: nil,
-            priority: 1
+            priority: nil,
+            extra: %{}
 
   @type t :: %__MODULE__{
           kind: kind() | nil,
@@ -44,6 +47,7 @@ defmodule JsonRules.Condition do
           value: term(),
           path: String.t() | nil,
           params: map() | nil,
-          priority: integer()
+          priority: integer() | nil,
+          extra: map()
         }
 end
