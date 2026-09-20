@@ -328,7 +328,7 @@ Benchmarks (see [benchmarks](docs/benchmarks.md)), performance
 ([performance](docs/performance.md)), and coverage (ExCoveralls):
 
 ```sh
-mix bench            # run the benchmark suites (schedule, store, fact)
+mix bench            # run the benchmark suites (schedule, store, fact, slowfacts, engines)
 mix coveralls.html   # coverage report + HTML in cover/; fails if below the ratchet
 ```
 

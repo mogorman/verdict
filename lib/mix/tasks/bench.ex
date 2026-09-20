@@ -3,9 +3,11 @@ defmodule Mix.Tasks.Bench do
   Runs the JSON-Rules benchmark suites (built on Benchee).
 
       mix bench            # run all suites
-      mix bench schedule   # schedule × scale × distribution
+      mix bench schedule   # schedule × scale × distribution (cheap facts)
       mix bench store      # store backends (:pure / :genserver / :ets)
       mix bench fact       # fact cost (constant vs dynamic)
+      mix bench slowfacts  # realistic dataset: slow facts × schedule × scale
+      mix bench engines    # schedule × short-circuit: the advantage of each engine
 
   The suites live in `bench/` and are required on demand, so the benchmark
   tooling is never compiled into the shipped library. Benchee results (CSV and
@@ -13,12 +15,14 @@ defmodule Mix.Tasks.Bench do
   """
   use Mix.Task
 
-  @shortdoc "Runs the JSON-Rules benchmark suites (schedule, store, fact-cost)"
+  @shortdoc "Runs the JSON-Rules benchmark suites (schedule, store, fact-cost, slow-facts, engines)"
 
   @targets [
     {"schedule", "bench/schedule.ex", JsonRules.Bench.Schedule},
     {"store", "bench/store.ex", JsonRules.Bench.Store},
-    {"fact", "bench/fact_cost.ex", JsonRules.Bench.FactCost}
+    {"fact", "bench/fact_cost.ex", JsonRules.Bench.FactCost},
+    {"slowfacts", "bench/slow_facts.ex", JsonRules.Bench.SlowFacts},
+    {"engines", "bench/engines.ex", JsonRules.Bench.Engines}
   ]
 
   @impl true
@@ -27,6 +31,7 @@ defmodule Mix.Tasks.Bench do
     File.mkdir_p!(Path.expand("bench/results"))
     require_file("bench/report.ex")
     require_file("bench/support.ex")
+    require_file("bench/data.ex")
 
     for {_name, file, module} <- selected(args) do
       require_file(file)
