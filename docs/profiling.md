@@ -201,3 +201,45 @@ reported — is still on the table if the residual explain cost ever becomes wor
 - The workloads here are fixed. To profile a real ruleset, add a case to
   `Verdict.Bench.Profile.profiles/0` (a label, an engine builder, a schedule, and a
   run count) and re-run `mix bench profile`.
+
+## Benchmark changes (post-optimization)
+
+The two fixes in [What was addressed](#what-was-addressed) landed in `e402b6b`. They
+were measured two ways: the controlled `:tprof` profile (identical workloads, before vs.
+after) and the full `mix bench` wall-time suite, re-run — the tables in
+[v0.1.0.md](v0.1.0.md) now reflect that run.
+
+### CPU time — the clean signal
+
+On the same profiled workloads, the targeted hot paths run faster:
+
+| workload | what moved | before → after | Δ |
+| --- | --- | --- | ---: |
+| `serial_wide_fast` | total call time | 13.6M → 9.8M µs | **−28%** |
+| `parallel_wide_fast` | total call time | 29.2M → 22.5M µs | **−23%** |
+| `serial_shortcircuit` | `JSONPath.AST.validation/2` | 14.3% → absent | — |
+| `serial_realistic` | `JSONPath.AST.validation/2` | 6.1% → absent | — |
+
+This is the direct effect of the two changes: operator explanations are built once
+(`Kernel.inspect/2` drops from 4 to 2 calls per leaf), and each JSONPath is compiled once
+at registration instead of re-parsed on every fact reference.
+
+### Wall time — moves where the fix touches, flat (within noise) elsewhere
+
+The six `mix bench` suites were re-run; per-suite median change in ops/s is small
+(schedule −1.4%, store +1.4%, fact +1.6%, slowfacts −1.1%, engines −1.2%, matrix −1.7%).
+That is inside this machine's run-to-run spread — the schedule suite's 50/narrow/serial
+scenario alone read 3,614 ops/s on 2026-09-19 and 4,756 on 2026-09-20, *before* this
+change. Read across the whole suite the optimization does not move the needle, because
+most scenarios are dominated by overhead the fix does not touch (per-rule `Task`/GenServer
+machinery in `:parallel`, GC, scheduling).
+
+Where the fix does touch the wall-clock it shows, in the expected direction: the
+engines-matrix `short-circuit, serial` path — a cheap deciding head per rule, exactly the
+operator work that got faster — roughly halved (0.74 ms → 0.38 ms at scale 100), which
+widened that table's short-circuit-vs-`strict` gap from ~130-140x to ~270-290x. This is
+consistent with the CPU-time profile, not a contradiction of the flat median.
+
+> The before/after wall-time figures are two runs a day apart, so single scenarios are
+> indicative, not precise. For a low-variance wall-time delta, run both back-to-back on
+> one machine (e.g. a `git worktree` at the pre-optimization commit vs. this one).
