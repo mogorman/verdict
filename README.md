@@ -1,4 +1,4 @@
-# JsonRules
+# Verdict
 
 An Elixir/Ecto reimplementation of
 [json-rules-engine](https://github.com/CacheControl/json-rules-engine).
@@ -12,9 +12,9 @@ rule's event is emitted as a *success*, otherwise as a *failure*.
 
 The rule data model is built from Ecto primitives:
 
-- `JsonRules.Rule` — an `Ecto.Schema`
-- `JsonRules.Event` — an `Ecto` embedded schema
-- `JsonRules.Condition` — a recursive tree behind a custom `Ecto.Type`
+- `Verdict.Rule` — an `Ecto.Schema`
+- `Verdict.Event` — an `Ecto` embedded schema
+- `Verdict.Condition` — a recursive tree behind a custom `Ecto.Type`
 - `Ecto.Changeset` — casts and validates the JSON-shaped input into typed structs
 
 No `Ecto.Repo`, no database driver, no migrations. The validated structs are held
@@ -35,7 +35,7 @@ The store is selected at engine construction so overhead scales with the workloa
 | `:genserver`| a stateful store in a GenServer's state      | available |
 | `:ets`      | a GenServer with rules/facts in ETS tables   | available |
 
-The store is a pluggable `JsonRules.Store` behaviour; you can also wrap a
+The store is a pluggable `Verdict.Store` behaviour; you can also wrap a
 pre-started store with `Engine.new(store: {module, handle})`.
 
 Evaluation is **independent of the store**: the evaluator is pure and operates on
@@ -56,7 +56,7 @@ stops as soon as its outcome is decided and the skipped leaves are reported in t
 changeset's `empty_values`. Pass `strict: true` to evaluate every condition
 instead.
 
-**Facts** are computed lazily and cached in a per-run `JsonRules.Almanac`
+**Facts** are computed lazily and cached in a per-run `Verdict.Almanac`
 (a shared in-memory cache) so a fact referenced by several conditions — or by
 other facts — is computed only once.
 
@@ -67,13 +67,13 @@ emitted through `Logger`:
 
 ```elixir
 # per engine
-engine = JsonRules.Engine.new(log: :debug)
+engine = Verdict.Engine.new(log: :debug)
 
 # per run (overrides the engine's level)
-JsonRules.Engine.run(engine, %{}, log: :info)
+Verdict.Engine.run(engine, %{}, log: :info)
 
 # or globally, in config/config.exs
-config :ecto_json_rules, :log, :warning
+config :verdict, :log, :warning
 ```
 
 The effective level is resolved per run: a per-run `:log` beats a per-engine
@@ -87,11 +87,11 @@ emits. See [Phase 6](docs/phase_6.md) for the step-by-level reference.
 
 ## Installation
 
-Add `ecto_json_rules` to your `mix.exs`:
+Add `verdict` to your `mix.exs`:
 
 ```elixir
 def deps do
-  [{:ecto_json_rules, "~> 0.1"}]
+  [{:verdict, "~> 0.1"}]
 end
 ```
 
@@ -99,13 +99,13 @@ end
 
 ```elixir
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_fact("gameDuration", 40)
-  |> JsonRules.Engine.add_fact("personalFoulCount", 6)
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_fact("gameDuration", 40)
+  |> Verdict.Engine.add_fact("personalFoulCount", 6)
 
 # (has committed 5 fouls AND a 40-minute game) OR (6 fouls AND a 48-minute game)
 {:ok, engine, _rule} =
-  JsonRules.Engine.add_rule(engine, %{
+  Verdict.Engine.add_rule(engine, %{
     name: "fouled-out",
     priority: 5,
     event: %{type: "fouledOut", params: %{message: "Player has fouled out!"}},
@@ -127,7 +127,7 @@ engine =
     }
   })
 
-%JsonRules.RunResult{events: [event]} = JsonRules.Engine.run(engine, %{})
+%Verdict.RunResult{events: [event]} = Verdict.Engine.run(engine, %{})
 event.type    #=> "fouledOut"
 event.params  #=> %{message: "Player has fouled out!"}
 ```
@@ -140,13 +140,13 @@ A fact is a constant or a function of `(params, almanac)`:
 products = %{"widget" => %{price: 150}}
 
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_fact("product-price", fn params, _almanac ->
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_fact("product-price", fn params, _almanac ->
     Map.fetch!(products, params["productId"]).price
   end)
   |> then(fn engine ->
     {:ok, engine, _} =
-      JsonRules.Engine.add_rule(engine, %{
+      Verdict.Engine.add_rule(engine, %{
         event: %{type: "expensive"},
         conditions: %{
           all: [
@@ -168,9 +168,9 @@ A fact can read other facts through the almanac (fact dependencies):
 
 ```elixir
 engine
-|> JsonRules.Engine.add_fact("account-info", fn _p, _a -> %{company: "microsoft"} end)
-|> JsonRules.Engine.add_fact("company", fn _p, almanac ->
-  JsonRules.Almanac.fact_value(almanac, "account-info").company
+|> Verdict.Engine.add_fact("account-info", fn _p, _a -> %{company: "microsoft"} end)
+|> Verdict.Engine.add_fact("company", fn _p, almanac ->
+  Verdict.Almanac.fact_value(almanac, "account-info").company
 end)
 ```
 
@@ -227,13 +227,13 @@ payload = """
 decoded = :json.decode(payload)
 
 engine =
-  Enum.reduce(decoded["rules"], JsonRules.Engine.new(), fn rule, engine ->
-    {:ok, engine, _rule} = JsonRules.Engine.add_rule(engine, rule)
+  Enum.reduce(decoded["rules"], Verdict.Engine.new(), fn rule, engine ->
+    {:ok, engine, _rule} = Verdict.Engine.add_rule(engine, rule)
     engine
   end)
 
-%JsonRules.RunResult{events: [event], results: [{_rule, changeset}]} =
-  JsonRules.Engine.run(engine, decoded["facts"])
+%Verdict.RunResult{events: [event], results: [{_rule, changeset}]} =
+  Verdict.Engine.run(engine, decoded["facts"])
 
 event.type   #=> "fouledOut"
 event.params #=> %{"message" => "Player has fouled out!"}
@@ -265,28 +265,28 @@ branch's leaves landed in `empty_values` instead of being evaluated. `changes` a
 without any of them overwriting the others. `data.facts` holds the computed fact
 values. Facts passed to `run/3` are runtime facts (they override registered facts
 for that run); you may also register facts up front with `add_fact/3`. See
-`JsonRules.Evaluation` for the full report shape.
+`Verdict.Evaluation` for the full report shape.
 
 The round-trip runs in reverse, too. A stored rule serializes back to a
-JSON-compatible map with `JsonRules.Rule.to_map/1`, and an engine's whole rule set
-with `JsonRules.Engine.rules_as_map/1` (in descending priority order). For
+JSON-compatible map with `Verdict.Rule.to_map/1`, and an engine's whole rule set
+with `Verdict.Engine.rules_as_map/1` (in descending priority order). For
 well-formed rules `to_map/1` is the exact inverse of the cast, so
 `decode → add_rule → to_map` returns a payload's rules unchanged. Facts and
 operators hold functions and so are not serializable.
 
 The **completed result** of a run serializes the same way —
-`JsonRules.RunResult.to_map/1` (the whole run) and `JsonRules.RuleResult.to_map/1`
+`Verdict.RunResult.to_map/1` (the whole run) and `Verdict.RuleResult.to_map/1`
 (one rule) — so a JSON payload can flow in and a JSON result can flow out. See
 [From JSON back to JSON: the completed result](docs/result_json.md) for the full
 flow and the report shape.
 
 ## One-shot run
 
-`JsonRules.run/3` builds an engine, registers the rules, and runs them in a
+`Verdict.run/3` builds an engine, registers the rules, and runs them in a
 single call. `rules` may be a JSON string (a rule object or an array of them),
-a map, a `JsonRules.Rule` struct, or a list of any of those; `facts` may be a
+a map, a `Verdict.Rule` struct, or a list of any of those; `facts` may be a
 JSON string or a map of `name` to value (a value may be a function for a
-dynamic fact). The options accept any `JsonRules.Engine.new/1` key — `:strict`,
+dynamic fact). The options accept any `Verdict.Engine.new/1` key — `:strict`,
 `:schedule`, `:store`, `:log`, and so on.
 
 ```elixir
@@ -297,21 +297,21 @@ rules = """
   ] } }
 """
 
-# {:ok, %JsonRules.RunResult{events: [event]}}
-JsonRules.run(rules, %{"personalFoulCount" => 6})
+# {:ok, %Verdict.RunResult{events: [event]}}
+Verdict.run(rules, %{"personalFoulCount" => 6})
 
 # same, but return the result directly and raise on a bad rule / malformed JSON
-%JsonRules.RunResult{} = JsonRules.run!(rules, %{"personalFoulCount" => 6})
+%Verdict.RunResult{} = Verdict.run!(rules, %{"personalFoulCount" => 6})
 
 # options pass straight through to the engine
-JsonRules.run!(rules, %{"personalFoulCount" => 6},
+Verdict.run!(rules, %{"personalFoulCount" => 6},
   schedule: :parallel, strict: true, store: :genserver)
 ```
 
 `run/3` returns `{:ok, %RunResult{}}`, `{:error, changeset}` (an invalid rule),
 or `{:error, {:bad_json, message}}`. `run!/3` returns the `RunResult` directly
-and raises `JsonRules.InvalidRuleError` (carrying the failing `changeset`) or
-`JsonRules.InvalidJSONError` (carrying the decoder's `reason` and `input`).
+and raises `Verdict.InvalidRuleError` (carrying the failing `changeset`) or
+`Verdict.InvalidJSONError` (carrying the decoder's `reason` and `input`).
 
 ## Phases
 

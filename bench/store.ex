@@ -1,6 +1,6 @@
-defmodule JsonRules.Bench.Store do
+defmodule Verdict.Bench.Store do
   @moduledoc """
-  Wall time of `JsonRules.Engine.run/3` across the store backends at a fixed
+  Wall time of `Verdict.Engine.run/3` across the store backends at a fixed
   workload.
 
     * `:pure`     – a plain struct; rules and facts live in the engine itself.
@@ -11,7 +11,7 @@ defmodule JsonRules.Bench.Store do
   once outside the timed closure; `run/3` only reads rules/facts from it.
   """
   require Logger
-  alias JsonRules.{Bench.Report, Bench.Support, Engine}
+  alias Verdict.{Bench.Report, Bench.Support, Engine}
 
   @backends [:pure, :genserver, :ets]
   @scale 200

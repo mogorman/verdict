@@ -1,6 +1,6 @@
-defmodule JsonRules.Bench.FactCost do
+defmodule Verdict.Bench.FactCost do
   @moduledoc """
-  Wall time of `JsonRules.Engine.run/3` as a fact's computation cost varies,
+  Wall time of `Verdict.Engine.run/3` as a fact's computation cost varies,
   crossed with schedule.
 
     * fact: `constant` (a precomputed term, O(1) to read) vs `dynamic`
@@ -12,7 +12,7 @@ defmodule JsonRules.Bench.FactCost do
   across worker processes; `:serial` pays it straight-line.
   """
   require Logger
-  alias JsonRules.{Bench.Report, Engine}
+  alias Verdict.{Bench.Report, Engine}
 
   @scale 100
   @work 20_000

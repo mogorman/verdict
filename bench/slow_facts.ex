@@ -1,7 +1,7 @@
-defmodule JsonRules.Bench.SlowFacts do
+defmodule Verdict.Bench.SlowFacts do
   @moduledoc """
-  Wall time of `JsonRules.Engine.run/3` on the realistic
-  `JsonRules.Bench.Data` dataset as the **slow fact** dominates, crossed with
+  Wall time of `Verdict.Engine.run/3` on the realistic
+  `Verdict.Bench.Data` dataset as the **slow fact** dominates, crossed with
   schedule and rule scale.
 
   The dataset's `fraud_score` fact is expensive and `cache: false`, so it is
@@ -14,7 +14,7 @@ defmodule JsonRules.Bench.SlowFacts do
   the baseline so the crossover is visible in one table.
   """
   require Logger
-  alias JsonRules.{Bench.Data, Bench.Report, Engine}
+  alias Verdict.{Bench.Data, Bench.Report, Engine}
 
   @scales [100, 500, 2000]
   @speeds [:fast, :slow]

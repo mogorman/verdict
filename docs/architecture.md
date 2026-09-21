@@ -1,6 +1,6 @@
 # Architecture and data types
 
-`JsonRules` is built from a small number of orthogonal pieces: a typed data model
+`Verdict` is built from a small number of orthogonal pieces: a typed data model
 (`Rule`, `Event`, `Condition`), a pluggable **store** that holds it, a pure
 **evaluator** that turns a condition tree into a `Ecto.Changeset` report, and a
 thin **engine** that glues the two together. This reference describes each data
@@ -10,36 +10,36 @@ type and how a run flows through them.
 
 | Type                         | Kind                | Role                                                    |
 | ---------------------------- | ------------------- | ------------------------------------------------------- |
-| `JsonRules.Engine`           | struct              | the public API; bundles a store with the evaluator      |
-| `JsonRules.Rule`             | Ecto schema         | a condition tree + a single event, plus `priority`/`extra` |
-| `JsonRules.Event`            | Ecto embedded schema| the thing a rule emits (`type` + `params`)              |
-| `JsonRules.Condition`        | struct (tree)       | one node of the condition tree                          |
-| `JsonRules.Types.Condition`  | `Ecto.Type`         | casts/dumps a condition tree to/from a JSON-shaped map  |
-| `JsonRules.Fact`             | struct              | a registered fact (constant or function) + `cache`/`priority` |
+| `Verdict.Engine`           | struct              | the public API; bundles a store with the evaluator      |
+| `Verdict.Rule`             | Ecto schema         | a condition tree + a single event, plus `priority`/`extra` |
+| `Verdict.Event`            | Ecto embedded schema| the thing a rule emits (`type` + `params`)              |
+| `Verdict.Condition`        | struct (tree)       | one node of the condition tree                          |
+| `Verdict.Types.Condition`  | `Ecto.Type`         | casts/dumps a condition tree to/from a JSON-shaped map  |
+| `Verdict.Fact`             | struct              | a registered fact (constant or function) + `cache`/`priority` |
 | `Ecto.Changeset`             | struct              | the **evaluation report** for a single rule             |
-| `JsonRules.RuleResult`       | struct              | one rule's outcome: rule + report + event + `valid?`    |
-| `JsonRules.RunResult`        | struct              | the outcome of a run (events + per-rule reports)        |
-| `JsonRules.Almanac`          | struct              | the per-run fact store, cache, and run state            |
-| `JsonRules.Almanac.ProcessLocal` | almanac backend   | the process-local almanac (used by `:serial`)           |
-| `JsonRules.Almanac.Shared`   | almanac backend     | a per-run GenServer almanac, shared by `:parallel`      |
-| `JsonRules.EvaluationContext`| struct              | everything `Evaluation` needs for one run               |
-| `JsonRules.Store`            | behaviour           | the pluggable store contract                            |
-| `JsonRules.Store.State`      | struct (internal)   | the shared state + pure fns behind the built-in backends |
-| `JsonRules.Store.Pure`       | store               | the default backend (a plain `State` struct)            |
-| `JsonRules.Store.GenServer`  | store               | a process-backed store (the stateful default)           |
-| `JsonRules.Store.Ets`        | store               | an ETS-backed store (rules/facts in ETS tables)         |
-| `JsonRules.Operators`        | module              | built-in operators, decorators and composite resolution |
-| `JsonRules.Log`              | module              | optional, level-gated logging (the `:log` threshold)    |
-| `JsonRules.UndefinedFactError`| exception          | raised when a missing fact is not allowed               |
+| `Verdict.RuleResult`       | struct              | one rule's outcome: rule + report + event + `valid?`    |
+| `Verdict.RunResult`        | struct              | the outcome of a run (events + per-rule reports)        |
+| `Verdict.Almanac`          | struct              | the per-run fact store, cache, and run state            |
+| `Verdict.Almanac.ProcessLocal` | almanac backend   | the process-local almanac (used by `:serial`)           |
+| `Verdict.Almanac.Shared`   | almanac backend     | a per-run GenServer almanac, shared by `:parallel`      |
+| `Verdict.EvaluationContext`| struct              | everything `Evaluation` needs for one run               |
+| `Verdict.Store`            | behaviour           | the pluggable store contract                            |
+| `Verdict.Store.State`      | struct (internal)   | the shared state + pure fns behind the built-in backends |
+| `Verdict.Store.Pure`       | store               | the default backend (a plain `State` struct)            |
+| `Verdict.Store.GenServer`  | store               | a process-backed store (the stateful default)           |
+| `Verdict.Store.Ets`        | store               | an ETS-backed store (rules/facts in ETS tables)         |
+| `Verdict.Operators`        | module              | built-in operators, decorators and composite resolution |
+| `Verdict.Log`              | module              | optional, level-gated logging (the `:log` threshold)    |
+| `Verdict.UndefinedFactError`| exception          | raised when a missing fact is not allowed               |
 
 ## The data types
 
-### `JsonRules.Rule`
+### `Verdict.Rule`
 
 An `Ecto.Schema` (no repo, no table) — the unit the engine stores and evaluates.
 It is produced by `Rule.changeset/2` from JSON-shaped attributes and serialized back
 out with `Rule.to_map/1`, the inverse of the cast for well-formed rules.
-`JsonRules.Engine.rules_as_map/1` serializes an engine's whole rule set (in
+`Verdict.Engine.rules_as_map/1` serializes an engine's whole rule set (in
 descending priority order).
 
 | Field         | Type                              | Notes                                        |
@@ -48,11 +48,11 @@ descending priority order).
 | `name`        | `String.t() \| nil`               | optional identifier                          |
 | `priority`    | `integer()` (default `1`)         | higher runs first; must be `> 0`             |
 | `extra`       | `map()` (default `%{}`)           | arbitrary custom properties                  |
-| `event`       | `JsonRules.Event.t()`             | required                                     |
-| `conditions`  | `JsonRules.Condition.t()`         | required; root is `all`/`any`/`not`/`ref`    |
+| `event`       | `Verdict.Event.t()`             | required                                     |
+| `conditions`  | `Verdict.Condition.t()`         | required; root is `all`/`any`/`not`/`ref`    |
 | `inserted_at`/`updated_at` | `NaiveDateTime.t() \| nil` | present but always `nil` (no repo)          |
 
-### `JsonRules.Event`
+### `Verdict.Event`
 
 An embedded `Ecto.Schema` — what a rule emits. It is a *success* when the rule's
 conditions are truthy, a *failure* otherwise.
@@ -62,7 +62,7 @@ conditions are truthy, a *failure* otherwise.
 | `type`   | `String.t() \| nil`   | required         |
 | `params` | `map()` (default `%{}`)| arbitrary data |
 
-### `JsonRules.Condition`
+### `Verdict.Condition`
 
 A recursive tree. A node is one of five kinds; most fields are `nil` unless
 relevant to the node's kind.
@@ -81,7 +81,7 @@ relevant to the node's kind.
 | `priority` | `integer() \| nil`                | all (leaves default to their fact's priority; other nodes to `1`) |
 | `extra`    | `map()` (default `%{}`)           | all              |
 
-### `JsonRules.Types.Condition`
+### `Verdict.Types.Condition`
 
 The `Ecto.Type` that turns a JSON-shaped map into the `Condition` tree (and back).
 `from_map/1` (used by `cast` and by `Engine.set_condition/3`) validates the
@@ -104,7 +104,7 @@ A rule's conditions are evaluated into a plain `Ecto.Changeset` — the engine's
 `changes` and `errors` are **lists**, so one fact can appear under several
 conditions without overwriting.
 
-### `JsonRules.RunResult`
+### `Verdict.RunResult`
 
 The outcome of one `Engine.run/3`.
 
@@ -118,7 +118,7 @@ The outcome of one `Engine.run/3`.
 result, including its evaluation report) back to a JSON-compatible map — see
 [From JSON back to JSON: the completed result](result_json.md).
 
-### `JsonRules.Almanac`
+### `Verdict.Almanac`
 
 The per-run fact store, cache, and run state. Created at the start of every
 `Engine.run/3`, destroyed at the end.
@@ -153,7 +153,7 @@ boolean()}` state, but store it differently:
 
 `fact_map` is `%{(String.t() \| atom()) => term()}`.
 
-### `JsonRules.Fact`
+### `Verdict.Fact`
 
 A registered fact — either a **constant** (any term) or **dynamic** (a
 `(params, almanac)` / `(params)` function that computes its value). Built from a
@@ -172,7 +172,7 @@ A fact's `value` is resolved by `Fact.calculate/3`, which dispatches on arity
 only). `is_dynamic?/1` reports whether a `calculation_method` is present.
 `Fact.registry()` is `%{String.t() => Fact.t()}`.
 
-### `JsonRules.RuleResult`
+### `Verdict.RuleResult`
 
 The outcome of evaluating one rule during a run. It is the third argument every
 event callback receives, and the element type of `RunResult.results`.
@@ -184,9 +184,9 @@ event callback receives, and the element type of `RunResult.results`.
 | `event`      | `Event.t()`          | the event emitted (fact refs in `params` resolved when `replace_facts_in_event_params` is set) |
 | `valid?`     | `boolean()`          | whether the rule fired      |
 
-### `JsonRules.EvaluationContext`
+### `Verdict.EvaluationContext`
 
-Bundles everything the pure `JsonRules.Evaluation` needs for one run. Built by the
+Bundles everything the pure `Verdict.Evaluation` needs for one run. Built by the
 `Evaluator` from the almanac plus the engine's registries and options.
 
 | Field                        | Type                                   |
@@ -199,7 +199,7 @@ Bundles everything the pure `JsonRules.Evaluation` needs for one run. Built by t
 | `allow_undefined_conditions` | `boolean()`                            |
 | `strict`                     | `boolean()`                            |
 
-### `JsonRules.Engine`
+### `Verdict.Engine`
 
 The public API. It holds the store backend *module* and its *state* handle, plus
 the event-callback registries:
@@ -220,7 +220,7 @@ Run configuration lives **on the engine**, not in the store. So a store holds on
 its rule/fact/operator/decorator/condition registries, and a pre-started store can
 be shared across engines and runs. `Engine.new/1` selects the store with `:store`
 (`:pure` by default, `:genserver`, `:ets`, or a `{module, handle}` tuple wrapping
-an already-created `JsonRules.Store` backend) and passes `:store_options` to the
+an already-created `Verdict.Store` backend) and passes `:store_options` to the
 backend's `create/1`.
 
 Event callbacks are registered with `on/3` (engine-level, keyed by event type —
@@ -231,7 +231,7 @@ event; for a specific type (fired only when that rule succeeds) `first` is the
 event's `params`. Callbacks run between rules, so they may call
 `Almanac.stop/1` or `Almanac.add_runtime_fact/3`.
 
-### `JsonRules.Store` (behaviour) and its backends
+### `Verdict.Store` (behaviour) and its backends
 
 `Store` is the **pluggable store contract**. A backend holds the rule / fact /
 operator / decorator / condition registries. Stateful callbacks return
@@ -257,7 +257,7 @@ Custom backends do not need it.
 A pre-started store (from `Store.GenServer.start_link/1` or `Store.Ets.start_link/1`)
 can be shared across engines/runs via `Engine.new(store: {module, name_or_pid})`.
 
-### `JsonRules.Operators`
+### `Verdict.Operators`
 
 Not a struct — a module of functions. Built-in operators have the shape
 `(fact_value, json_value) -> {passed?, explanation}`. Decorators have the shape
@@ -275,7 +275,7 @@ condition that uses it.
 leftmost decorator is outermost) plus the condition's `params` into an operator
 function, preferring the engine's custom operators/decorators over the built-ins.
 
-### `JsonRules.UndefinedFactError`
+### `Verdict.UndefinedFactError`
 
 Raised by the almanac when a condition needs a fact that was never registered (and
 not supplied to `run/3`), unless `allow_undefined_facts` is set.

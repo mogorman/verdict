@@ -1,19 +1,19 @@
 # Phase 1 — the core engine (MVP)
 
-Phase 1 is the working core of `JsonRules`: a pure, Ecto-typed rules engine that
+Phase 1 is the working core of `Verdict`: a pure, Ecto-typed rules engine that
 evaluates human-readable condition trees against a set of **facts** and reports —
 as a `Ecto.Changeset` — exactly how each rule fired.
 
 ## What this phase delivers
 
-- An **Ecto data model with no database**: `JsonRules.Rule` (a schema),
-  `JsonRules.Event` (an embedded schema), a recursive `JsonRules.Condition` tree
+- An **Ecto data model with no database**: `Verdict.Rule` (a schema),
+  `Verdict.Event` (an embedded schema), a recursive `Verdict.Condition` tree
   behind a custom `Ecto.Type`, and `Ecto.Changeset` validation of JSON-shaped
   input.
 - A **pluggable store**. The default `:pure` backend is a plain struct (no
   process); evaluation is pure and independent of the store.
 - **Facts** — constants or `(params, almanac)` functions, computed lazily and
-  cached per run in a `JsonRules.Almanac`, so a fact used by several conditions —
+  cached per run in a `Verdict.Almanac`, so a fact used by several conditions —
   or by other facts — is computed only once.
 - Ten built-in **operators**.
 - Condition trees of `all` / `any` / `not` with a per-node `priority`.
@@ -31,13 +31,13 @@ tree is truthy the event is a *success*, otherwise a *failure*.
 
 ```elixir
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_fact("gameDuration", 40)
-  |> JsonRules.Engine.add_fact("personalFoulCount", 6)
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_fact("gameDuration", 40)
+  |> Verdict.Engine.add_fact("personalFoulCount", 6)
 
 # (40-minute game AND 5+ fouls) OR (48-minute game AND 6+ fouls)
 {:ok, engine, _rule} =
-  JsonRules.Engine.add_rule(engine, %{
+  Verdict.Engine.add_rule(engine, %{
     name: "fouled-out",
     priority: 5,
     event: %{type: "fouledOut", params: %{message: "Player has fouled out!"}},
@@ -59,7 +59,7 @@ engine =
     }
   })
 
-%JsonRules.RunResult{events: [event]} = JsonRules.Engine.run(engine, %{})
+%Verdict.RunResult{events: [event]} = Verdict.Engine.run(engine, %{})
 event.type   #=> "fouledOut"
 event.params #=> %{message: "Player has fouled out!"}
 ```
@@ -80,8 +80,8 @@ A fact is a constant or a function of `(params, almanac)` (or `(params)`):
 products = %{"widget" => %{price: 150}}
 
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_fact("product-price", fn params, _almanac ->
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_fact("product-price", fn params, _almanac ->
     Map.fetch!(products, params["productId"]).price
   end)
 ```
@@ -91,10 +91,10 @@ A fact can read other facts through the almanac (fact dependencies):
 
 ```elixir
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_fact("account-info", fn _p, _a -> %{company: "microsoft"} end)
-  |> JsonRules.Engine.add_fact("company", fn _p, almanac ->
-    JsonRules.Almanac.fact_value(almanac, "account-info").company
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_fact("account-info", fn _p, _a -> %{company: "microsoft"} end)
+  |> Verdict.Engine.add_fact("company", fn _p, almanac ->
+    Verdict.Almanac.fact_value(almanac, "account-info").company
   end)
 ```
 
@@ -123,13 +123,13 @@ Custom operators, operator decorators and composite operators arrive in
 
 ## The evaluation report
 
-`Engine.run/3` returns a `JsonRules.RunResult`. Its `results` is a list of
+`Engine.run/3` returns a `Verdict.RunResult`. Its `results` is a list of
 `{rule, changeset}` pairs where the changeset is that rule's **evaluation
 report**:
 
 ```elixir
-%JsonRules.RunResult{results: [{_rule, changeset}]} =
-  JsonRules.Engine.run(engine, %{})
+%Verdict.RunResult{results: [{_rule, changeset}]} =
+  Verdict.Engine.run(engine, %{})
 
 changeset.valid?       #=> true
 changeset.errors       #=> []
@@ -164,9 +164,9 @@ Pass `strict: true` to evaluate every condition regardless:
 
 ```elixir
 # evaluate all conditions, even after the outcome is known
-JsonRules.Engine.new(strict: true)
+Verdict.Engine.new(strict: true)
 # ...or per run:
-JsonRules.Engine.run(engine, %{}, strict: true)
+Verdict.Engine.run(engine, %{}, strict: true)
 ```
 
 ## From a JSON payload
@@ -202,12 +202,12 @@ payload = """
 decoded = :json.decode(payload)
 
 engine =
-  Enum.reduce(decoded["rules"], JsonRules.Engine.new(), fn rule, engine ->
-    {:ok, engine, _rule} = JsonRules.Engine.add_rule(engine, rule)
+  Enum.reduce(decoded["rules"], Verdict.Engine.new(), fn rule, engine ->
+    {:ok, engine, _rule} = Verdict.Engine.add_rule(engine, rule)
     engine
   end)
 
-%JsonRules.RunResult{events: [event]} = JsonRules.Engine.run(engine, decoded["facts"])
+%Verdict.RunResult{events: [event]} = Verdict.Engine.run(engine, decoded["facts"])
 event.type #=> "fouledOut"
 ```
 

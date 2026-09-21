@@ -6,8 +6,8 @@ ordered by the *fact* priority as well as by an explicit condition priority. It
 also adds per-fact caching control, fact-reference resolution in event params,
 and clearer error propagation.
 
-The evaluation core (`JsonRules.Evaluation`) stays pure and unchanged. What
-changed is the **run loop** (`JsonRules.Evaluator`): it is now a stateful,
+The evaluation core (`Verdict.Evaluation`) stays pure and unchanged. What
+changed is the **run loop** (`Verdict.Evaluator`): it is now a stateful,
 priority-ordered fold over the rules, carrying a per-run `Almanac` that handlers
 can read and mutate. The Almanac itself was moved off ETS onto a process-local
 state record (see [architecture](./architecture.md)).
@@ -38,7 +38,7 @@ function `fn first, almanac, rule_result`:
 - for `"success"` / `"failure"`, `first` is the rule's full `event`;
 - for a specific event type (fired only when that rule succeeds), `first` is the
   event's `params`;
-- `rule_result` is a `JsonRules.RuleResult`.
+- `rule_result` is a `Verdict.RuleResult`.
 
 Callbacks run **between rules**, after each rule is evaluated. A successful rule
 fires `"success"` and then its own event type; a failed rule fires only
@@ -46,17 +46,17 @@ fires `"success"` and then its own event type; a failed rule fires only
 
 ```elixir
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_fact("age", 21)
-  |> JsonRules.Engine.add_rule(%{
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_fact("age", 21)
+  |> Verdict.Engine.add_rule(%{
     conditions: %{any: [%{fact: "age", operator: "greaterThanInclusive", value: 21}]},
     event: %{type: "setDrinkingFlag", params: %{canOrderDrinks: true}},
     priority: 100
   })
-  |> JsonRules.Engine.on("success", fn event, _almanac, _rr ->
+  |> Verdict.Engine.on("success", fn event, _almanac, _rr ->
     IO.inspect(event.type)  # "setDrinkingFlag"
   end)
-  |> JsonRules.Engine.on("setDrinkingFlag", fn params, _almanac, _rr ->
+  |> Verdict.Engine.on("setDrinkingFlag", fn params, _almanac, _rr ->
     IO.inspect(params)  # %{canOrderDrinks: true}
   end)
 ```
@@ -69,14 +69,14 @@ engine-level callbacks, but only for that rule:
 
 ```elixir
 {:ok, engine, rule} =
-  JsonRules.Engine.add_rule(engine, %{
+  Verdict.Engine.add_rule(engine, %{
     conditions: %{any: [%{fact: "age", operator: "greaterThanInclusive", value: 21}]},
     event: %{type: "r1"},
     priority: 100
   })
 
 engine =
-  JsonRules.Engine.on_rule(engine, rule.id, "success", fn event, _a, _rr ->
+  Verdict.Engine.on_rule(engine, rule.id, "success", fn event, _a, _rr ->
     IO.inspect(event.type)  # fires only when rule fires
   end)
 ```
@@ -90,22 +90,22 @@ still complete:
 
 ```elixir
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_fact("age", 20)
-  |> JsonRules.Engine.add_rule(%{
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_fact("age", 20)
+  |> Verdict.Engine.add_rule(%{
     conditions: %{any: [%{fact: "age", operator: "greaterThanInclusive", value: 18}]},
     event: %{type: "adult"},
     priority: 100
   })
-  |> JsonRules.Engine.add_rule(%{
+  |> Verdict.Engine.add_rule(%{
     conditions: %{any: [%{fact: "segment", operator: "equal", value: "human"}]},
     event: %{type: "human"}
   })
-  |> JsonRules.Engine.on("success", fn _event, almanac, _rr ->
-    JsonRules.Almanac.stop(almanac)
+  |> Verdict.Engine.on("success", fn _event, almanac, _rr ->
+    Verdict.Almanac.stop(almanac)
   end)
 
-%JsonRules.RunResult{events: [event]} = JsonRules.Engine.run(engine)
+%Verdict.RunResult{events: [event]} = Verdict.Engine.run(engine)
 event.type #=> "adult"  # the second rule was skipped
 ```
 
@@ -117,25 +117,25 @@ This is how one rule's outcome can seed the next:
 
 ```elixir
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_fact("age", 21)
-  |> JsonRules.Engine.add_rule(%{
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_fact("age", 21)
+  |> Verdict.Engine.add_rule(%{
     conditions: %{any: [%{fact: "age", operator: "greaterThanInclusive", value: 21}]},
     event: %{type: "setDrinkingFlag", params: %{canOrderDrinks: true}},
     priority: 100
   })
-  |> JsonRules.Engine.add_rule(%{
+  |> Verdict.Engine.add_rule(%{
     conditions: %{any: [%{fact: "canOrderDrinks", operator: "equal", value: true}]},
     event: %{type: "offerDrink", params: %{wine: "merlot", quantity: 2}},
     priority: 1
   })
-  |> JsonRules.Engine.on("success", fn event, almanac, _rr ->
+  |> Verdict.Engine.on("success", fn event, almanac, _rr ->
     if event.type == "setDrinkingFlag" do
-      JsonRules.Almanac.add_runtime_fact(almanac, "canOrderDrinks", event.params[:canOrderDrinks])
+      Verdict.Almanac.add_runtime_fact(almanac, "canOrderDrinks", event.params[:canOrderDrinks])
     end
   end)
 
-%JsonRules.RunResult{events: events} = JsonRules.Engine.run(engine)
+%Verdict.RunResult{events: events} = Verdict.Engine.run(engine)
 Enum.map(events, & &1.type) #=> ["setDrinkingFlag", "offerDrink"]
 ```
 
@@ -150,11 +150,11 @@ decides the rule without touching the lower-priority facts:
 
 ```elixir
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_fact("a", fn _p, _a -> false end, priority: 100)
-  |> JsonRules.Engine.add_fact("b", fn _p, _a -> true end, priority: 50)
-  |> JsonRules.Engine.add_fact("c", fn _p, _a -> true end, priority: 1)
-  |> JsonRules.Engine.add_rule(%{
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_fact("a", fn _p, _a -> false end, priority: 100)
+  |> Verdict.Engine.add_fact("b", fn _p, _a -> true end, priority: 50)
+  |> Verdict.Engine.add_fact("c", fn _p, _a -> true end, priority: 1)
+  |> Verdict.Engine.add_rule(%{
     # declared c, a, b — but a (priority 100) is evaluated first
     conditions: %{
       all: [
@@ -166,7 +166,7 @@ engine =
     event: %{type: "none"}
   })
 
-JsonRules.Engine.run(engine) #=> %RunResult{events: []}
+Verdict.Engine.run(engine) #=> %RunResult{events: []}
 # a is evaluated first and fails, so b and c are never evaluated
 ```
 
@@ -182,8 +182,8 @@ recompute it on every reference:
 
 ```elixir
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_fact("age", fn _p, _a -> 22 end, cache: false)
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_fact("age", fn _p, _a -> 22 end, cache: false)
 
 # every reference to "age" runs the definition again
 ```
@@ -198,14 +198,14 @@ resolved to its computed value before the event is emitted or stored in the
 
 ```elixir
 engine =
-  JsonRules.Engine.new(replace_facts_in_event_params: true)
-  |> JsonRules.Engine.add_rule(%{
+  Verdict.Engine.new(replace_facts_in_event_params: true)
+  |> Verdict.Engine.add_rule(%{
     conditions: %{any: [%{fact: "success", operator: "equal", value: true}]},
     event: %{type: "countedEnough", params: %{count: %{fact: "count"}}},
     priority: 100
   })
 
-%JsonRules.RunResult{results: [rr]} = JsonRules.Engine.run(engine, %{success: true, count: 5})
+%Verdict.RunResult{results: [rr]} = Verdict.Engine.run(engine, %{success: true, count: 5})
 rr.event.params #=> %{count: 5}
 ```
 
@@ -216,14 +216,14 @@ the error is **not** swallowed — it propagates out of `Engine.run/3`:
 
 ```elixir
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_fact("age", fn _p, _a -> raise "problem occurred" end)
-  |> JsonRules.Engine.add_rule(%{
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_fact("age", fn _p, _a -> raise "problem occurred" end)
+  |> Verdict.Engine.add_rule(%{
     conditions: %{any: [%{fact: "age", operator: "greaterThanInclusive", value: 21}]},
     event: %{type: "generic"}
   })
 
-JsonRules.Engine.run(engine)
+Verdict.Engine.run(engine)
 # ** (RuntimeError) problem occurred
 ```
 

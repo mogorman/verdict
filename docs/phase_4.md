@@ -4,12 +4,12 @@ Phase 4 completes the two axes of pluggability the design promised:
 
 - **Scheduling** — a `:parallel` engine that evaluates each priority bucket's rules
   concurrently, over a **shared** per-run almanac.
-- **Storage** — a clean `JsonRules.Store` **behaviour** as the extension point, with
+- **Storage** — a clean `Verdict.Store` **behaviour** as the extension point, with
   three built-in backends (`:pure`, `:genserver`, `:ets`) and support for wrapping
   a pre-started store.
 
-The pure evaluation core (`JsonRules.Evaluation`) is unchanged. What changed is the
-**run loop** (`JsonRules.Evaluator`), the **Almanac** (now a thin API over a
+The pure evaluation core (`Verdict.Evaluation`) is unchanged. What changed is the
+**run loop** (`Verdict.Evaluator`), the **Almanac** (now a thin API over a
 backend), and the **store layer** (split into a behaviour, a shared `State`, and the
 backends). See [architecture](./architecture.md) for the updated data types.
 
@@ -35,21 +35,21 @@ rules *within* a bucket run concurrently:
 
 ```elixir
 engine =
-  JsonRules.Engine.new(schedule: :parallel)
-  |> JsonRules.Engine.add_fact("age", 22)
-  |> JsonRules.Engine.add_fact("score", 95)
-  |> JsonRules.Engine.add_rule(%{
+  Verdict.Engine.new(schedule: :parallel)
+  |> Verdict.Engine.add_fact("age", 22)
+  |> Verdict.Engine.add_fact("score", 95)
+  |> Verdict.Engine.add_rule(%{
     conditions: %{any: [%{fact: "age", operator: "greaterThanInclusive", value: 18}]},
     event: %{type: "adult"},
     priority: 10
   })
-  |> JsonRules.Engine.add_rule(%{
+  |> Verdict.Engine.add_rule(%{
     conditions: %{any: [%{fact: "score", operator: "greaterThanInclusive", value: 90}]},
     event: %{type: "high-score"},
     priority: 10  # same bucket as "adult" -> evaluated concurrently
   })
 
-%JsonRules.RunResult{events: events} = JsonRules.Engine.run(engine)
+%Verdict.RunResult{events: events} = Verdict.Engine.run(engine)
 Enum.sort(Enum.map(events, & &1.type)) #=> ["adult", "high-score"]
 ```
 
@@ -57,7 +57,7 @@ The concurrency of a bucket is bounded by the `:parallel_concurrency` run option
 (default `System.schedulers_online()`); pass it per run or set it on the engine:
 
 ```elixir
-JsonRules.Engine.run(engine, %{}, parallel_concurrency: 4)
+Verdict.Engine.run(engine, %{}, parallel_concurrency: 4)
 ```
 
 ### The shared almanac
@@ -76,16 +76,16 @@ back).
 
 ```elixir
 engine =
-  JsonRules.Engine.new(schedule: :parallel)
-  |> JsonRules.Engine.add_fact("base", fn _p, _a -> %{age: 20} end)
-  |> JsonRules.Engine.add_fact("age", fn _p, almanac ->
-    Map.fetch!(JsonRules.Almanac.fact_value(almanac, "base"), :age)
+  Verdict.Engine.new(schedule: :parallel)
+  |> Verdict.Engine.add_fact("base", fn _p, _a -> %{age: 20} end)
+  |> Verdict.Engine.add_fact("age", fn _p, almanac ->
+    Map.fetch!(Verdict.Almanac.fact_value(almanac, "base"), :age)
   end)
-  |> JsonRules.Engine.add_rule(%{
+  |> Verdict.Engine.add_rule(%{
     conditions: %{any: [%{fact: "age", operator: "lessThanInclusive", value: 25}]},
     event: %{type: "young"}
   })
-  |> JsonRules.Engine.add_rule(%{
+  |> Verdict.Engine.add_rule(%{
     conditions: %{any: [%{fact: "age", operator: "greaterThanInclusive", value: 18}]},
     event: %{type: "adult"}
   })
@@ -104,22 +104,22 @@ engine =
 
 ## The store layer
 
-`JsonRules.Store` is now a **behaviour** — the single contract a backend
+`Verdict.Store` is now a **behaviour** — the single contract a backend
 implements. It covers `create/1` plus the rule / fact / operator / decorator /
 condition registries. Run configuration (`schedule`, `strict`, …) is **not** part of
 the contract; it lives on the `Engine`, which is what lets one pre-started store be
 shared across engines and runs.
 
-`JsonRules.Store.State` is the internal helper all built-ins share: a plain struct
+`Verdict.Store.State` is the internal helper all built-ins share: a plain struct
 holding the five registries with pure transformations. A custom backend does **not**
 need it — it only needs to implement the behaviour.
 
 ### Choosing a backend
 
 ```elixir
-JsonRules.Engine.new()                       # :pure (default) — a plain struct
-JsonRules.Engine.new(store: :genserver)      # a GenServer holds the state
-JsonRules.Engine.new(store: :ets)            # rules/facts in public ETS tables
+Verdict.Engine.new()                       # :pure (default) — a plain struct
+Verdict.Engine.new(store: :genserver)      # a GenServer holds the state
+Verdict.Engine.new(store: :ets)            # rules/facts in public ETS tables
 ```
 
 ### Sharing a pre-started store
@@ -128,27 +128,27 @@ Start a store yourself (e.g. under a supervisor) and wrap it — the engine reus
 without re-creating it:
 
 ```elixir
-{:ok, pid} = JsonRules.Store.GenServer.start_link([])
-engine = JsonRules.Engine.new(store: {JsonRules.Store.GenServer, pid})
+{:ok, pid} = Verdict.Store.GenServer.start_link([])
+engine = Verdict.Engine.new(store: {Verdict.Store.GenServer, pid})
 
 # or, with a named ETS store, so other processes can read the tables directly:
-store = JsonRules.Store.Ets.create(table: :my_store)
-engine = JsonRules.Engine.new(store: {JsonRules.Store.Ets, store})
+store = Verdict.Store.Ets.create(table: :my_store)
+engine = Verdict.Engine.new(store: {Verdict.Store.Ets, store})
 :ets.lookup(:"my_store.rules", some_rule_id)
 ```
 
 ### Writing your own backend
 
-Implement the behaviour. The minimal idea (full example in the `JsonRules.Store`
+Implement the behaviour. The minimal idea (full example in the `Verdict.Store`
 moduledoc):
 
 ```elixir
 defmodule MyStore do
   use GenServer
-  @behaviour JsonRules.Store
+  @behaviour Verdict.Store
 
   def create(_opts) do
-    {:ok, pid} = GenServer.start(__MODULE__, JsonRules.Store.State.new())
+    {:ok, pid} = GenServer.start(__MODULE__, Verdict.Store.State.new())
     pid
   end
 
@@ -157,15 +157,15 @@ defmodule MyStore do
   @impl true
   def rules(handle), do: {handle, GenServer.call(handle, :rules)}
 
-  # ... the remaining callbacks, delegating to JsonRules.Store.State ...
+  # ... the remaining callbacks, delegating to Verdict.Store.State ...
 
   def init(state), do: {:ok, state}
   def handle_call({:add_rule, rule}, _from, state) do
-    {state, added} = JsonRules.Store.State.add_rule(state, rule)
+    {state, added} = Verdict.Store.State.add_rule(state, rule)
     {:reply, added, state}
   end
   def handle_call(:rules, _from, state) do
-    {:reply, elem(JsonRules.Store.State.rules(state), 1), state}
+    {:reply, elem(Verdict.Store.State.rules(state), 1), state}
   end
 end
 ```

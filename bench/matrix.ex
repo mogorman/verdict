@@ -1,6 +1,6 @@
-defmodule JsonRules.Bench.Matrix do
+defmodule Verdict.Bench.Matrix do
   @moduledoc """
-  Wall time of `JsonRules.Engine.run/3` across the **full configuration cube** —
+  Wall time of `Verdict.Engine.run/3` across the **full configuration cube** —
   every vector crossed, so their interactions show:
 
     * **store** — `:pure` / `:genserver` / `:ets` (how rules and facts are held);
@@ -10,7 +10,7 @@ defmodule JsonRules.Bench.Matrix do
     * **fact speed** — cheap (`:fast`) vs expensive (`:slow`) tail fact;
     * **fact caching** — cached vs `cache: false` (recomputed on every reference);
     * **rule shape** — narrow×flat, wide×flat, narrow×nested, wide×nested
-      (`JsonRules.Bench.Data.shapes/0`), each a cheap deciding head over a tail of
+      (`Verdict.Bench.Data.shapes/0`), each a cheap deciding head over a tail of
       leaves at distinct priorities.
 
   `3 × 2 × 2 × 2 × 2 × 4 = 96` scenarios at a fixed scale. The results are written
@@ -18,7 +18,7 @@ defmodule JsonRules.Bench.Matrix do
   them as a table per rule shape.
   """
   require Logger
-  alias JsonRules.{Bench.Data, Bench.Report, Engine}
+  alias Verdict.{Bench.Data, Bench.Report, Engine}
 
   @scale 100
   @stores [:pure, :genserver, :ets]

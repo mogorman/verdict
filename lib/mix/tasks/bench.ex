@@ -19,12 +19,12 @@ defmodule Mix.Tasks.Bench do
   @shortdoc "Runs the JSON-Rules benchmark suites (schedule, store, fact-cost, slow-facts, engines, matrix)"
 
   @targets [
-    {"schedule", "bench/schedule.ex", JsonRules.Bench.Schedule},
-    {"store", "bench/store.ex", JsonRules.Bench.Store},
-    {"fact", "bench/fact_cost.ex", JsonRules.Bench.FactCost},
-    {"slowfacts", "bench/slow_facts.ex", JsonRules.Bench.SlowFacts},
-    {"engines", "bench/engines.ex", JsonRules.Bench.Engines},
-    {"matrix", "bench/matrix.ex", JsonRules.Bench.Matrix}
+    {"schedule", "bench/schedule.ex", Verdict.Bench.Schedule},
+    {"store", "bench/store.ex", Verdict.Bench.Store},
+    {"fact", "bench/fact_cost.ex", Verdict.Bench.FactCost},
+    {"slowfacts", "bench/slow_facts.ex", Verdict.Bench.SlowFacts},
+    {"engines", "bench/engines.ex", Verdict.Bench.Engines},
+    {"matrix", "bench/matrix.ex", Verdict.Bench.Matrix}
   ]
 
   @impl true

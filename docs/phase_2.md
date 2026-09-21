@@ -26,18 +26,18 @@ comparing the whole fact. The engine's default resolver is JSONPath:
 
 ```elixir
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_fact("player", fn _p, _a -> %{stats: %{level: 12, hp: 80}} end)
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_fact("player", fn _p, _a -> %{stats: %{level: 12, hp: 80}} end)
 
 {:ok, engine, _rule} =
-  JsonRules.Engine.add_rule(engine, %{
+  Verdict.Engine.add_rule(engine, %{
     event: %{type: "high-level"},
     conditions: %{
       all: [%{fact: "player", path: "$.stats.level", operator: "greaterThanInclusive", value: 10}]
     }
   })
 
-%{events: [event]} = JsonRules.Engine.run(engine, %{})
+%{events: [event]} = Verdict.Engine.run(engine, %{})
 event.type #=> "high-level"
 ```
 
@@ -67,9 +67,9 @@ By default a condition on a fact that was never registered (and not supplied to
 `run/3`) raises. Opt in to treating missing facts as `nil`:
 
 ```elixir
-engine = JsonRules.Engine.new(allow_undefined_facts: true)
+engine = Verdict.Engine.new(allow_undefined_facts: true)
 # or per run:
-JsonRules.Engine.run(engine, %{}, allow_undefined_facts: true)
+Verdict.Engine.run(engine, %{}, allow_undefined_facts: true)
 ```
 
 ## Custom operators and decorators
@@ -83,18 +83,18 @@ at `add_rule` time.
 
 ```elixir
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_operator("startsWithLetter", fn fact_value, letter ->
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_operator("startsWithLetter", fn fact_value, letter ->
     String.starts_with?(to_string(fact_value), letter)
   end)
 
 {:ok, engine, _rule} =
-  JsonRules.Engine.add_rule(engine, %{
+  Verdict.Engine.add_rule(engine, %{
     event: %{type: "match"},
     conditions: %{all: [%{fact: "name", operator: "startsWithLetter", value: "J"}]}
   })
 
-JsonRules.Engine.remove_operator(engine, "startsWithLetter")  # unregister
+Verdict.Engine.remove_operator(engine, "startsWithLetter")  # unregister
 ```
 
 ### Operator decorators
@@ -128,21 +128,21 @@ Register a custom decorator the same way:
 ```elixir
 # lowercase both sides before delegating to the base operator
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_operator_decorator("caseInsensitive", fn fv, jv, next ->
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_operator_decorator("caseInsensitive", fn fv, jv, next ->
     next.(String.downcase(to_string(fv)), String.downcase(to_string(jv)))
   end)
 
 {:ok, engine, _rule} =
-  JsonRules.Engine.add_rule(engine, %{
+  Verdict.Engine.add_rule(engine, %{
     event: %{type: "ok"},
     conditions: %{all: [%{fact: "nickname", operator: "caseInsensitive:equal", value: "sam"}]}
   })
 
-JsonRules.Engine.run(engine, %{nickname: "Sam"})  # "sam" == "sam" -> success
-JsonRules.Engine.run(engine, %{nickname: "Bob"})  # -> failure
+Verdict.Engine.run(engine, %{nickname: "Sam"})  # "sam" == "sam" -> success
+Verdict.Engine.run(engine, %{nickname: "Bob"})  # -> failure
 
-JsonRules.Engine.remove_operator_decorator(engine, "caseInsensitive")  # unregister
+Verdict.Engine.remove_operator_decorator(engine, "caseInsensitive")  # unregister
 ```
 
 ## Comparing facts
@@ -152,10 +152,10 @@ with `params` and `path`) — so one fact can be compared directly against anoth
 The referenced fact is resolved through the almanac:
 
 ```elixir
-engine = JsonRules.Engine.new()
+engine = Verdict.Engine.new()
 
 {:ok, engine, _rule} =
-  JsonRules.Engine.add_rule(engine, %{
+  Verdict.Engine.add_rule(engine, %{
     event: %{type: "taller-than-wide"},
     conditions: %{
       all: [
@@ -164,8 +164,8 @@ engine = JsonRules.Engine.new()
     }
   })
 
-JsonRules.Engine.run(engine, %{height: 1, width: 2})  # 1 <= 2 -> success
-JsonRules.Engine.run(engine, %{height: 2, width: 1})  # 2 <= 1 -> failure
+Verdict.Engine.run(engine, %{height: 1, width: 2})  # 1 <= 2 -> success
+Verdict.Engine.run(engine, %{height: 2, width: 1})  # 2 <= 1 -> failure
 ```
 
 The resolved value is what the operator sees and what is recorded in the report
@@ -178,12 +178,12 @@ the top level, nested, or inside another condition. References can be chained.
 
 ```elixir
 {:ok, engine} =
-  JsonRules.Engine.set_condition(engine, "over60", %{
+  Verdict.Engine.set_condition(engine, "over60", %{
     all: [%{fact: "age", operator: "greaterThanInclusive", value: 60}]
   })
 
 {:ok, engine, _rule} =
-  JsonRules.Engine.add_rule(engine, %{
+  Verdict.Engine.add_rule(engine, %{
     event: %{type: "retire"},
     conditions: %{
       all: [
@@ -193,14 +193,14 @@ the top level, nested, or inside another condition. References can be chained.
     }
   })
 
-JsonRules.Engine.remove_condition(engine, "over60")  # unregister
+Verdict.Engine.remove_condition(engine, "over60")  # unregister
 ```
 
 A reference that was never registered **raises** (`No condition <name> exists`)
 unless you opt in to treating it as `false`:
 
 ```elixir
-engine = JsonRules.Engine.new(allow_undefined_conditions: true)
+engine = Verdict.Engine.new(allow_undefined_conditions: true)
 ```
 
 A circular reference (a condition that, directly or transitively, references
@@ -213,7 +213,7 @@ on the typed struct and round-trips through the condition's JSON map:
 
 ```elixir
 {:ok, engine, rule} =
-  JsonRules.Engine.add_rule(engine, %{
+  Verdict.Engine.add_rule(engine, %{
     event: %{type: "ok"},
     conditions: %{
       all: [%{fact: "age", operator: "equal", value: 1, extra: %{note: "checked by ops"}}]

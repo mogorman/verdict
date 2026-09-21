@@ -7,10 +7,10 @@ configured.
 
 ## What this phase delivers
 
-- A `:log` option on `JsonRules.Engine.new/1` (per engine) and
-  `JsonRules.Engine.run/3` (per run), plus a global application-config setting
-  (`config :ecto_json_rules, :log, level`).
-- `JsonRules.Log` — the level model: a cumulative threshold, the per-run
+- A `:log` option on `Verdict.Engine.new/1` (per engine) and
+  `Verdict.Engine.run/3` (per run), plus a global application-config setting
+  (`config :verdict, :log, level`).
+- `Verdict.Log` — the level model: a cumulative threshold, the per-run
   resolution, and the lazy emitters the evaluator calls at each step.
 - `test/json_rules/log_test.exs` — unit coverage of the gating/resolution and
   integration tests that capture real `Logger` output at each level.
@@ -21,13 +21,13 @@ Logging is off unless a level is set, in any of three places:
 
 ```elixir
 # per engine (applies to every run of that engine)
-engine = JsonRules.Engine.new(log: :debug)
+engine = Verdict.Engine.new(log: :debug)
 
 # per run (overrides the engine's level for this run only)
-JsonRules.Engine.run(engine, %{}, log: :info)
+Verdict.Engine.run(engine, %{}, log: :info)
 
 # globally, in config/config.exs
-config :ecto_json_rules, :log, :warning
+config :verdict, :log, :warning
 ```
 
 ### Resolution
@@ -103,7 +103,7 @@ the short-circuit / stop messages, and by default it emits nothing.
 `test/json_rules/log_test.exs` covers the pure logic (`emit?/2`, the predicates,
 `valid?/1`/`validate!/1`, `normalize/3`, and that a lazy message is only built when
 it will be emitted) and, with a temporary `:logger` handler that captures real
-`Logger` output (`JsonRules.LogCapture`), that a run:
+`Logger` output (`Verdict.LogCapture`), that a run:
 
 - emits nothing with no `:log`;
 - emits the full trace at `:debug`;

@@ -1,6 +1,6 @@
-defmodule JsonRules.Bench.Engines do
+defmodule Verdict.Bench.Engines do
   @moduledoc """
-  Wall time of `JsonRules.Engine.run/3` across the engine-configuration matrix,
+  Wall time of `Verdict.Engine.run/3` across the engine-configuration matrix,
   chosen to make the **advantage of each engine** visible:
 
     * **schedule** — `:serial` vs `:parallel`.
@@ -8,7 +8,7 @@ defmodule JsonRules.Bench.Engines do
       skipping the rest) vs `strict: true` (every condition is evaluated, for a
       complete report).
 
-  The dataset (`JsonRules.Bench.Data.engines_engine/2`) gives each rule a cheap
+  The dataset (`Verdict.Bench.Data.engines_engine/2`) gives each rule a cheap
   head that decides its `all` early, followed by an expensive tail of slow
   `fraud_score` conditions. The trade-offs the matrix exposes:
 
@@ -18,7 +18,7 @@ defmodule JsonRules.Bench.Engines do
       parallel engine when a complete evaluation is required.
   """
   require Logger
-  alias JsonRules.{Bench.Data, Bench.Report, Engine}
+  alias Verdict.{Bench.Data, Bench.Report, Engine}
 
   @scales [100, 500, 2000]
   @stricts [false, true]

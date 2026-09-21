@@ -1,6 +1,6 @@
-defmodule JsonRules.Bench.Schedule do
+defmodule Verdict.Bench.Schedule do
   @moduledoc """
-  Wall time of `JsonRules.Engine.run/3` across schedule × scale × distribution.
+  Wall time of `Verdict.Engine.run/3` across schedule × scale × distribution.
 
     * schedule: `:serial` (rules one at a time) vs `:parallel` (a priority bucket's
       rules run concurrently over a shared almanac).
@@ -12,7 +12,7 @@ defmodule JsonRules.Bench.Schedule do
   whether the overhead of the parallel machinery wins out when rules are cheap.
   """
   require Logger
-  alias JsonRules.{Bench.Report, Bench.Support, Engine}
+  alias Verdict.{Bench.Report, Bench.Support, Engine}
 
   @scales [50, 200, 1000]
   @distributions [:wide, :narrow]

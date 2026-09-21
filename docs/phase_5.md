@@ -9,9 +9,9 @@ Publication (a CHANGELOG, ExDoc, and a Hex release workflow) is deferred to Phas
 
 ## What this phase delivers
 
-- `JsonRules.Rule.to_map/1` and `JsonRules.Event.to_map/1` — serialize a rule (and
+- `Verdict.Rule.to_map/1` and `Verdict.Event.to_map/1` — serialize a rule (and
   its event) back to a JSON-compatible map.
-- `JsonRules.Engine.rules_as_map/1` — serialize an engine's whole rule set.
+- `Verdict.Engine.rules_as_map/1` — serialize an engine's whole rule set.
 - An acceptance test ported from the reference's `test/acceptance/acceptance.js`.
 - A performance sanity test and `docs/performance.md`.
 
@@ -19,11 +19,11 @@ Publication (a CHANGELOG, ExDoc, and a Hex release workflow) is deferred to Phas
 
 Up to now a rule could be *loaded* from JSON (via `Rule.changeset/2`) but not
 *serialized back out*. The condition tree already round-tripped
-(`JsonRules.Types.Condition.from_map/1` / `to_map/1`); this phase adds the same for
+(`Verdict.Types.Condition.from_map/1` / `to_map/1`); this phase adds the same for
 the rule and event:
 
 ```elixir
-alias JsonRules.{Engine, Rule}
+alias Verdict.{Engine, Rule}
 
 payload = %{
   "name" => "first",
@@ -51,8 +51,8 @@ omitted, mirroring the condition serializer.
 Facts and operators hold **functions**, which are not JSON-serializable, so only
 rules round-trip — not the whole engine state.
 
-The same idea extends to the **result** of a run. `JsonRules.RunResult.to_map/1` and
-`JsonRules.RuleResult.to_map/1` serialize the completed run — `events`,
+The same idea extends to the **result** of a run. `Verdict.RunResult.to_map/1` and
+`Verdict.RuleResult.to_map/1` serialize the completed run — `events`,
 `failure_events`, and the per-rule evaluation report (the leaves that passed,
 failed, or were short-circuited, each with the operator, expected value, and the
 fact's actual value) — back to a JSON-compatible map. Together with the rule
@@ -74,7 +74,7 @@ place where integration bugs hide. A single scenario wires together:
   runtime fact.
 
 It has a *succeeds* scenario and a *fails* scenario. The assertions are written
-against this engine's `JsonRules.RuleResult` shape (`valid?`, `event`, `rule`, and
+against this engine's `Verdict.RuleResult` shape (`valid?`, `event`, `rule`, and
 the evaluation `changeset`) rather than the reference's JSON
 `results[].conditions` tree — parity on **behavior**, not on the wire format.
 

@@ -38,12 +38,12 @@ Every suite follows the same shape:
    calls `Engine.run/3` on a pre-built engine.
 3. **Write the report.** The HTML report is written by the `benchee_html` formatter
    (passed in `formatters:`). The `%Benchee.Suite{}` returned by `Benchee.run/2` is
-   also fed to `JsonRules.Bench.Report`, which writes the CSV.
+   also fed to `Verdict.Bench.Report`, which writes the CSV.
 
 Benchee 1.5+ ships only a console formatter and a tagged-suite saver, so the HTML
 report comes from the official [`benchee_html`](https://hex.pm/packages/benchee_html)
 plugin. There is no first-party CSV formatter, so `bench/report.ex`
-(`JsonRules.Bench.Report`) reads the suite's run-time statistics and writes the CSV —
+(`Verdict.Bench.Report`) reads the suite's run-time statistics and writes the CSV —
 see it for the column definitions.
 
 ## The suites
@@ -87,7 +87,7 @@ fact in its own process), so it can hide much of the cost. The gap between
 ### The `Data` dataset
 
 The earlier suites build rules over a synthetic `f1..f20` fact set.
-`bench/data.ex` (`JsonRules.Bench.Data`) is a **realistic, reusable** dataset — a
+`bench/data.ex` (`Verdict.Bench.Data`) is a **realistic, reusable** dataset — a
 transaction-risk ruleset — used by the `slowfacts` suite:
 
 - **structured facts** (`transaction`, `customer`) read with JSONPath `path`s,
@@ -135,7 +135,7 @@ shared-almanac overhead dominates when facts are cheap) — so the `schedule` an
 
 The `slowfacts` suite leaves short-circuiting on. This suite adds the
 **short-circuit** axis (`strict`) to show the advantage of each engine
-configuration. Its dataset (`JsonRules.Bench.Data.engines_engine/2`) gives every
+configuration. Its dataset (`Verdict.Bench.Data.engines_engine/2`) gives every
 rule a cheap head that decides its `all` early, followed by an expensive tail of
 slow `fraud_score` conditions:
 
@@ -179,7 +179,7 @@ scenarios at scale 100 — so their interactions show:
   `strict: true` (every condition is evaluated);
 - **fact speed** — cheap (`:fast`) vs expensive (`:slow`) tail fact;
 - **fact caching** — cached vs `cache: false` (recomputed on every reference);
-- **rule shape** — `JsonRules.Bench.Data.shapes/0`: a cheap deciding head over a tail
+- **rule shape** — `Verdict.Bench.Data.shapes/0`: a cheap deciding head over a tail
   of leaves at distinct priorities, in four geometries — `shallow` (narrow × flat,
   4 leaves), `wide` (wide × flat, 16 leaves), `nested` (narrow × nested, 4 leaves in
   `any` pairs), `wide_nested` (wide × nested, 16 leaves in `any` pairs). Flat vs

@@ -1,4 +1,4 @@
-defmodule JsonRules.Bench.Data do
+defmodule Verdict.Bench.Data do
   @moduledoc """
   A realistic, reusable ruleset for the benchmark suites — a transaction-risk
   model.
@@ -14,15 +14,15 @@ defmodule JsonRules.Bench.Data do
       `slow: true` an expensive dynamic fact (`cache: false`) that is recomputed
       on every reference — the cost the `:parallel` scheduler overlaps.
 
-  `engine/2` builds a fully-populated `JsonRules.Engine` for `count` rules.
+  `engine/2` builds a fully-populated `Verdict.Engine` for `count` rules.
   """
-  alias JsonRules.Engine
+  alias Verdict.Engine
 
   # Integer additions one slow `fraud_score` performs per reference.
   @slow_work 60_000
 
   @doc """
-  Builds a `JsonRules.Engine` with `count` rules from the dataset.
+  Builds a `Verdict.Engine` with `count` rules from the dataset.
 
   Options:
 

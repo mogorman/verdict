@@ -1,12 +1,12 @@
-defmodule JsonRules.Bench.Support do
+defmodule Verdict.Bench.Support do
   @moduledoc """
   Shared builders for the JSON-Rules benchmark suites.
 
-  Each builder returns a fully-populated `JsonRules.Engine` (facts and rules
-  already registered) so the benchmarked `JsonRules.Engine.run/3` only has to
+  Each builder returns a fully-populated `Verdict.Engine` (facts and rules
+  already registered) so the benchmarked `Verdict.Engine.run/3` only has to
   evaluate — setup cost is excluded from the timed closure.
   """
-  alias JsonRules.Engine
+  alias Verdict.Engine
 
   # The widest rule in the suite: enough facts for a `wide` rule.
   @max_width 20

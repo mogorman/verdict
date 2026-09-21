@@ -1,12 +1,12 @@
-defmodule JsonRules.MixProject do
+defmodule Verdict.MixProject do
   use Mix.Project
 
   @version "0.1.0"
-  @source_url "https://github.com/mogorman/ecto-json-rules"
+  @source_url "https://github.com/mogorman/verdict"
 
   def project do
     [
-      app: :ecto_json_rules,
+      app: :verdict,
       version: @version,
       elixir: "~> 1.20",
       start_permanent: Mix.env() == :prod,
@@ -64,7 +64,7 @@ defmodule JsonRules.MixProject do
 
   defp docs do
     [
-      main: "JsonRules",
+      main: "Verdict",
       source_ref: "v#{@version}",
       source_url: @source_url
     ]

@@ -1,4 +1,4 @@
-defmodule JsonRules.TestSupport do
+defmodule Verdict.TestSupport do
   @moduledoc false
 
   @doc "Builds a rule attribute map with defaults, mirroring the JS rule factory."
@@ -23,13 +23,13 @@ defmodule JsonRules.TestSupport do
 
   @doc "Adds a rule and returns the updated engine."
   def add_rule(engine, attrs \\ %{}) do
-    {:ok, engine, _rule} = JsonRules.Engine.add_rule(engine, rule(attrs))
+    {:ok, engine, _rule} = Verdict.Engine.add_rule(engine, rule(attrs))
     engine
   end
 
   @doc "Adds a rule and returns the updated `{engine, rule}`."
   def add_rule_with(engine, attrs \\ %{}) do
-    {:ok, engine, rule} = JsonRules.Engine.add_rule(engine, rule(attrs))
+    {:ok, engine, rule} = Verdict.Engine.add_rule(engine, rule(attrs))
     {engine, rule}
   end
 
@@ -64,7 +64,7 @@ defmodule JsonRules.TestSupport do
   end
 end
 
-defmodule JsonRules.LogCapture do
+defmodule Verdict.LogCapture do
   @moduledoc false
 
   # Captures `Logger` output for the logging integration tests by registering a

@@ -1,4 +1,4 @@
-defmodule JsonRules.Bench.Report do
+defmodule Verdict.Bench.Report do
   @moduledoc """
   Renders the CSV artifact for a `Benchee.Suite` (the value returned by
   `Benchee.run/2`).

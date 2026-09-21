@@ -40,19 +40,19 @@ operator knows *why* a value failed — so it can say so. Return a
 
 ```elixir
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_operator("startsWithLetter", fn fact_value, _letter ->
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_operator("startsWithLetter", fn fact_value, _letter ->
     {fact_value |> to_string() |> String.first() == "t",
      "value must start with the letter t"}
   end)
 
 {:ok, engine, _} =
-  JsonRules.Engine.add_rule(engine, %{
+  Verdict.Engine.add_rule(engine, %{
     event: %{type: "op"},
     conditions: %{all: [%{fact: "name", operator: "startsWithLetter", value: "t"}]}
   })
 
-%{results: [%{changeset: cs, valid?: false}]} = JsonRules.Engine.run(engine, %{name: "nope"})
+%{results: [%{changeset: cs, valid?: false}]} = Verdict.Engine.run(engine, %{name: "nope"})
 cs.errors #=> [{:name, {"value must start with the letter t", [operator: "startsWithLetter", ...]}]}
 ```
 
@@ -80,18 +80,18 @@ in_range = fn fact_value, _json_value, params ->
 end
 
 engine =
-  JsonRules.Engine.new()
-  |> JsonRules.Engine.add_operator("inRange", in_range)
+  Verdict.Engine.new()
+  |> Verdict.Engine.add_operator("inRange", in_range)
 
 {:ok, engine, _} =
-  JsonRules.Engine.add_rule(engine, %{
+  Verdict.Engine.add_rule(engine, %{
     event: %{type: "in-band"},
     # the operator's bounds come from `params`, not from the condition `value`
     conditions: %{all: [%{fact: "score", operator: "inRange", value: nil, params: %{min: 5, max: 10}}]}
   })
 
-JsonRules.Engine.run(engine, %{score: 7})  #=> fires (7 is within [5..10])
-JsonRules.Engine.run(engine, %{score: 12}) #=> fails, error reads "12 is outside [5..10]"
+Verdict.Engine.run(engine, %{score: 7})  #=> fires (7 is within [5..10])
+Verdict.Engine.run(engine, %{score: 12}) #=> fails, error reads "12 is outside [5..10]"
 ```
 
 Both features compose: the `inRange` operator above is *both* parameterized (it reads

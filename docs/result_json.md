@@ -7,9 +7,9 @@ serializing the **completed result** of a run back to JSON, so the whole flow is
 
 The entry points:
 
-- `JsonRules.RunResult.to_map/1` — the whole run: `events`, `failure_events`, and one
+- `Verdict.RunResult.to_map/1` — the whole run: `events`, `failure_events`, and one
   entry per rule (`results`), in priority order.
-- `JsonRules.RuleResult.to_map/1` — a single rule's result.
+- `Verdict.RuleResult.to_map/1` — a single rule's result.
 
 Both return maps with **string keys**. Encode with OTP 28's built-in `:json`
 (`:json.encode/1` returns an iolist, so pipe through `IO.iodata_to_binary/1`).
@@ -43,7 +43,7 @@ A payload with facts and rules:
 ```
 
 ```elixir
-alias JsonRules.{Engine, RunResult}
+alias Verdict.{Engine, RunResult}
 
 decoded = :json.decode(payload)
 
