@@ -33,6 +33,7 @@ defmodule Verdict.Condition do
             operator: nil,
             value: nil,
             path: nil,
+            path_ast: nil,
             params: nil,
             priority: nil,
             extra: %{}
@@ -46,6 +47,7 @@ defmodule Verdict.Condition do
           operator: String.t() | nil,
           value: term(),
           path: String.t() | nil,
+          path_ast: term() | nil,
           params: map() | nil,
           priority: integer() | nil,
           extra: map()

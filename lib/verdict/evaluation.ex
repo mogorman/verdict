@@ -79,12 +79,19 @@ defmodule Verdict.Evaluation do
   # --- leaf -----------------------------------------------------------------
 
   defp leaf(
-         %Condition{fact: fact, operator: operator, value: value, params: params, path: path},
+         %Condition{
+           fact: fact,
+           operator: operator,
+           value: value,
+           params: params,
+           path: path,
+           path_ast: path_ast
+         },
          context
        ) do
     field = String.to_atom(fact)
     fact_value = Almanac.fact_value(context.almanac, fact, params || %{})
-    actual = if path, do: resolve_path!(fact_value, path, context), else: fact_value
+    actual = if path, do: resolve_path!(fact_value, path, path_ast, context), else: fact_value
     resolved_value = resolve_value(value, context)
     {passed?, explanation} = operator_fn(context, operator, params).(actual, resolved_value)
     data = %{facts: %{field => fact_value}}
@@ -116,7 +123,9 @@ defmodule Verdict.Evaluation do
       params = value["params"] || value[:params] || %{}
       path = value["path"] || value[:path]
       fact_value = Almanac.fact_value(context.almanac, fact, params)
-      if path, do: resolve_path!(fact_value, path, context), else: fact_value
+      # A fact-reference value's path is data (not a precompiled leaf path), so it
+      # is compiled on demand (`path_ast: nil` falls back to parsing here).
+      if path, do: resolve_path!(fact_value, path, nil, context), else: fact_value
     else
       value
     end
@@ -284,10 +293,10 @@ defmodule Verdict.Evaluation do
   # (map) or array (list); any other value is returned unchanged. A custom
   # `path_resolver` (when registered on the engine) takes full control;
   # otherwise the built-in JSONPath resolver is used.
-  defp resolve_path!(fact_value, path, context) do
+  defp resolve_path!(fact_value, path, path_ast, context) do
     if is_map(fact_value) or is_list(fact_value) do
       case context.path_resolver do
-        nil -> default_resolve_path(fact_value, path)
+        nil -> default_resolve_path(fact_value, path, path_ast)
         fun when is_function(fun, 2) -> fun.(fact_value, path)
       end
     else
@@ -298,10 +307,33 @@ defmodule Verdict.Evaluation do
   # `JSONPath.values/2` returns a list of matches: a `[*]` wildcard keeps that
   # list (so it can be used with `in`/`contains`), while a non-wildcard path
   # unwraps to the single matched value (or `nil` when nothing matches).
-  defp default_resolve_path(fact_value, path) do
-    case JSONPath.values(fact_value, normalize_json_path(path)) do
-      {:ok, matches} -> normalize_path(matches, path)
-      {:error, _} -> nil
+  #
+  # `path_ast` is the leaf's precompiled path (see `Verdict.Types.Condition`) when
+  # available; a `nil` (a fact-reference value's path) is compiled on demand.
+  defp default_resolve_path(fact_value, path, path_ast) do
+    case compiled_ast(path_ast, path) do
+      :invalid ->
+        nil
+
+      ast ->
+        case JSONPath.values(fact_value, ast) do
+          {:ok, matches} -> normalize_path(matches, path)
+          {:error, _} -> nil
+        end
+    end
+  end
+
+  # The leaf's precompiled path AST, or `:invalid` when the path is not a valid
+  # JSONPath (in which case the value resolves to `nil`). A `nil` — a
+  # fact-reference value's path, which is data rather than a precompiled leaf
+  # path — is compiled here on demand.
+  defp compiled_ast({:ok, ast}, _path), do: ast
+  defp compiled_ast({:error, _}, _path), do: :invalid
+
+  defp compiled_ast(nil, path) do
+    case JSONPath.build(normalize_json_path(path)) do
+      {:ok, ast} -> ast
+      {:error, _} -> :invalid
     end
   end
 

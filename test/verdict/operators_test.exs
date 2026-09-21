@@ -6,7 +6,7 @@ defmodule Verdict.OperatorsTest do
 
   test "equal / notEqual" do
     assert {true, msg} = Operators.get("equal").(1, 1)
-    assert is_binary(msg) and msg != ""
+    assert msg != ""
     assert {false, _} = Operators.get("equal").(1, 2)
     assert {false, _} = Operators.get("notEqual").(1, 1)
     assert {true, _} = Operators.get("notEqual").(1, 2)

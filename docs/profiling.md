@@ -63,152 +63,133 @@ FUNCTION                              CALLS  TIME (us)  PER CALL  [    %]
 
 ## What the profile shows
 
-Top rows for each workload (full tables in `bench/profile/<label>.txt`):
+Top rows for each workload (full tables in `bench/profile/<label>.txt`). This is the state
+**after** the two highest-impact fixes (see [What was addressed](#what-was-addressed) below):
+the JSONPath re-parse is gone and explanation strings are built once per leaf, so what
+remains is the per-leaf result/map work, the combinator's multi-pass, and — in parallel —
+the per-rule task machinery.
 
-`serial_wide_fast` — dominated by building operator explanation strings:
-
-```
-FUNCTION                                   CALLS  TIME (us)  PER CALL  [   %]
-'Elixir.Inspect.Algebra':format/4         12800000    1010239      0.08  [7.43]
-'Elixir.Kernel':inspect/2                  3200000     790378      0.25  [5.81]
-'Elixir.Inspect.Integer':inspect/2         3200000     521272      0.16  [3.83]
-'Elixir.Inspect.Opts':default_inspect_fun/0 3200000    487666      0.15  [3.59]
-'Elixir.Keyword':get/3                     4802800     479771      0.10  [3.53]
-'Elixir.Inspect':inspect/2                 3200000     357847      0.11  [2.63]
-'Elixir.Inspect.Opts':new/1                3200000     342545      0.11  [2.52]
-lists:do_flatten/2                         5040600     340922      0.07  [2.51]
-'Elixir.Enum':'-map/2-lists^map/1-1-'/2    2721200     313574      0.12  [2.31]
-'Elixir.Verdict.Evaluation':leaf/2          800000     311402      0.39  [2.29]
-```
-
-`serial_realistic` — dominated by re-parsing JSONPath on every fact reference:
+`serial_wide_fast` — the explanation cluster (now one `inspect` per operand) is still the
+largest cost, with the per-leaf map/result work close behind:
 
 ```
 FUNCTION                                   CALLS  TIME (us)  PER CALL  [   %]
-'Elixir.Enumerable.List':reduce/3         5434800     377138      0.07  [6.53]
-'Elixir.JSONPath.AST':validation/2        4795200     350125      0.07  [6.06]
-'Elixir.JSONPath.AST':'-validation/2-fun-0-'/3 3196800  254044   0.08  [4.40]
-'Elixir.Inspect.Algebra':format/4         2611600     224018      0.09  [3.88]
-'Elixir.Enumerable':reduce/3              1665200     146729      0.09  [2.54]
-'Elixir.Enum':reduce_while/3              1665200     137405      0.08  [2.38]
-'Elixir.Enumerable':'impl_for!'/1         1705200     136221      0.08  [2.36]
-'Elixir.Enum':'-map/2-lists^map/1-1-'/2   1347200     133186      0.10  [2.30]
-'Elixir.Code.Identifier':escape/5         1092000     130186      0.12  [2.25]
-'Elixir.Kernel':inspect/2                  480000     125978      0.26  [2.18]
+'Elixir.Inspect.Algebra':format/4          6400000     521762      0.08  [ 5.31]
+'Elixir.Kernel':inspect/2                  1600000     404248      0.25  [ 4.12]
+lists:do_flatten/2                         5040600     356770      0.07  [ 3.63]
+'Elixir.Enum':'-map/2-lists^map/1-1-'/2    2721200     317075      0.12  [ 3.23]
+'Elixir.Keyword':get/3                     3202800     316476      0.10  [ 3.22]
+'Elixir.Verdict.Evaluation':leaf/2          800000     306742      0.38  [ 3.12]
+'Elixir.Inspect.Integer':inspect/2         1600000     263636      0.16  [ 2.68]
+'Elixir.Inspect':inspect/2                 1600000     263230      0.16  [ 2.68]
+'Elixir.Inspect.Opts':default_inspect_fun/0 1600000    260329      0.16  [ 2.65]
+'Elixir.Map':get/3                         1600000     205060      0.13  [ 2.09]
 ```
 
-`serial_shortcircuit` — the same JSONPath cost, larger still (17.5M path validations):
+`serial_realistic` — with the JSONPath parse gone, the string-explanation cluster and the
+combinator/map work are the top costs:
 
 ```
 FUNCTION                                   CALLS  TIME (us)  PER CALL  [   %]
-'Elixir.JSONPath.AST':validation/2       17568000    2633293      0.15  [14.26]
-'Elixir.Enumerable.List':reduce/3       20008488    1435747      0.07  [ 7.77]
-'Elixir.JSONPath.AST':'-validation/2-fun-0-'/3 11712000  935352  0.08  [ 5.06]
-'Elixir.Enumerable':reduce/3             6100488     540907      0.09  [ 2.93]
-'Elixir.Enum':reduce_while/3             6100488     539395      0.09  [ 2.92]
-'Elixir.Enum':'-map/2-lists^map/1-1-'/2  4150928     505907      0.12  [ 2.74]
-'Elixir.Enumerable':'impl_for!'/1        6100488     489748      0.08  [ 2.65]
-'Elixir.Keyword':get/3                   1958832     400347      0.20  [ 2.17]
-'Elixir.Inspect.Integer':inspect/2        976000     370310      0.38  [ 2.00]
-'Elixir.Inspect.Algebra':format/4         3904000     354576      0.09  [ 1.92]
+'Elixir.Enum':'-map/2-lists^map/1-1-'/2    2593360     255716      0.10  [ 4.76]
+lists:do_flatten/2                         2951795     197906      0.07  [ 3.68]
+'Elixir.Inspect.Algebra':format/4          2513665     185014      0.07  [ 3.44]
+'Elixir.Inspect.BitString':inspect/2        205205     148117      0.72  [ 2.76]
+'Elixir.Kernel':inspect/2                   462000     133409      0.29  [ 2.48]
+'Elixir.Code.Identifier':escape/5          1051050     132273      0.13  [ 2.46]
+'Elixir.Verdict.Evaluation':combinator/4    179410     114355      0.64  [ 2.13]
+'Elixir.Keyword':get/3                    1236620     113958      0.09  [ 2.12]
+'Elixir.Inspect':inspect/2                  564410     107992      0.19  [ 2.01]
+'Elixir.Verdict.Log':'emit?'/2              565180     104824      0.19  [ 1.95]
+```
+
+`serial_shortcircuit` — now dominated by the combinator's multi-pass and the per-leaf
+map/list allocation (the former JSONPath rows are gone):
+
+```
+FUNCTION                                   CALLS  TIME (us)  PER CALL  [   %]
+lists:do_flatten/2                         7132139     697281      0.10  [ 5.55]
+'Elixir.Enum':'-map/2-lists^map/1-1-'/2    6064778     608520      0.10  [ 4.84]
+'Elixir.Verdict.Evaluation':'-combinator/4-fun-1-'/2 1426000 469929  0.33  [ 3.74]
+erlang:binary_to_atom/1                     356500     333917      0.94  [ 2.66]
+'Elixir.Keyword':get/3                    1435982     311216      0.22  [ 2.48]
+'Elixir.Enum':flat_map/2                   713000     303713      0.43  [ 2.42]
+'Elixir.Verdict.Evaluation':leaf_descriptor/1 1069500  300661    0.28  [ 2.39]
+'Elixir.Verdict.Evaluation':combinator/4    356500     282011      0.79  [ 2.25]
+'Elixir.Enum':'-group_by/3-fun-0-'/4       1782500     280999      0.16  [ 2.24]
+'Elixir.Inspect.Algebra':format/4          2852000     258476      0.09  [ 2.06]
 ```
 
 `parallel_wide_fast` — the parallel machinery (a `Task` per rule, GenServer round-trips)
-plus the same explanation-string cost:
+now dominates even more clearly than the rules:
 
 ```
 FUNCTION                                   CALLS  TIME (us)  PER CALL  [   %]
-gen:do_call/4                              1361004    1569637      1.15  [ 5.37]
-'Elixir.Inspect.Algebra':format/4        10880000    1257342      0.12  [ 4.30]
-'Elixir.Kernel':inspect/2                 2720000    1041284      0.38  [ 3.56]
-erlang:send/3                              1360804    1015498      0.75  [ 3.47]
-lists:keyfind/3                            4165400     997282      0.24  [ 3.41]
-gen:reply/2                                1361004     970562      0.71  [ 3.32]
-'Elixir.Enum':'-map/2-lists^map/1-1-'/2   4481000     713006      0.16  [ 2.44]
-gen_server:loop/5                          1361004     661322      0.49  [ 2.26]
-lists:do_flatten/2                         6960000     636764      0.09  [ 2.18]
-'Elixir.Inspect.Integer':inspect/2        2720000     630631      0.23  [ 2.16]
+gen:do_call/4                              1361000    1555207      1.14  [ 6.90]
+erlang:send/3                              1360800     972553      0.71  [ 4.32]
+gen:reply/2                                1361000     899010      0.66  [ 3.99]
+'Elixir.Enum':'-map/2-lists^map/1-1-'/2   4481000     712493      0.16  [ 3.16]
+'Elixir.Inspect.Algebra':format/4          5440000     670388      0.12  [ 2.98]
+lists:do_flatten/2                         6960000     630240      0.09  [ 2.80]
+erlang:monitor/3                           1360800     605399      0.44  [ 2.69]
+erlang:demonitor/2                         1361200     586466      0.43  [ 2.60]
+'Elixir.Task.Supervised':stream_spawn/4     40000     555033     13.88  [ 2.46]
+gen_server:loop/5                          1361000     548313      0.40  [ 2.43]
 ```
 
 ## Optimization opportunities
 
-Ranked by the share of time they represent across the workloads. Each names the code,
-why it is hot, and the change that removes it.
+What is left to win, ranked by the share of time it represents in the profile above.
 
-### 1. Build operator explanations once, or lazily — ~30–45% of the wide runs
-
-Every built-in operator builds **both** the pass and the fail explanation strings, and
-each string `inspect`s **both** operands (operators.ex, `equal/2` … `f/1`):
-
-```elixir
-defp equal(a, b), do: res(a == b, "#{f(a)} equals #{f(b)}", "#{f(a)} is not equal to #{f(b)}")
-defp f(value), do: inspect(value)
-defp res(true, ok, _), do: {true, ok}
-defp res(false, _ok, bad), do: {false, bad}
-```
-
-So each leaf calls `inspect/1` on `a` **twice** and on `b` **twice**, builds two
-strings, and throws one away. The profile shows this directly: in `serial_wide_fast`
-`Kernel.inspect/2` runs 3.2M times for 800k leaves (≈4 inspects per leaf), and the
-whole `Inspect.*` + `iolist_to_binary` cluster is ~45% of the run. Two fixes, either
-or both:
-
-- **Inspect each operand once, and only the branch that's taken.** Hoist
-  `a_s = inspect(a)` / `b_s = inspect(b)` and build a single string in an `if`.
-  Roughly halves this cost with no API change.
-- **Make the explanation lazy.** The string only matters when the run's `errors` (or a
-  `debug` log line) is actually read. Return a zero-arity thunk from the operator and
-  materialize it in the evaluator only when the leaf's error is emitted. That removes
-  the cost from the passing-leaf path entirely.
-
-### 2. Compile JSONPath once, not per fact reference — ~25–40% of the realistic / short-circuit runs
-
-`default_resolve_path/2` hands the raw path string to `JSONPath.values/2` on **every**
-leaf (evaluation.ex:301–313):
-
-```elixir
-defp default_resolve_path(fact_value, path) do
-  case JSONPath.values(fact_value, normalize_json_path(path)) do ...
-```
-
-`values/2` re-tokenizes, re-parses, and re-validates the path each call — the
-`json_path` docs say to *prefer `build/1` when running the same query multiple times,
-since building the query each time performs potentially expensive semantic checks.* In
-`serial_shortcircuit` `JSONPath.AST.validation/2` alone is 14.3% (17.5M calls) and the
-whole parse/validate cluster is ~39%. `values/2` already accepts a built AST
-(`String.t() | AST.t()`), so the fix is to compile the path **once**
-(`JSONPath.build!/1` on the normalized path, at rule registration or memoized on the
-path string) and pass the AST on every evaluation. The `.[`→`[` normalization folds
-into that one-time compile.
-
-### 3. One pass through a combinator's results, and cheaper leaf results
+### 1. The combinator: one pass, not five — the top serial cost
 
 `combinator/4` (evaluation.ex:130–166) re-sorts the children by priority on every
 evaluation (`group_by` + `sort_by` + `flatten`), then walks the results in **five**
 separate `Enum.map`/`List.flatten` passes to gather `changes`, `errors`, `facts`, and
-`empty_values`; `merge_maps/1` folds the fact maps with O(n²) `Map.merge`s. The profile
-shows the tell-tale `-combinator/4-fun-N-/1` family (fun-0 … fun-9). A single fold that
-accumulates all four lists at once, plus sorting only when the children aren't already
-in priority order, and building the fact map in one reduce, removes most of it.
+`empty_values`; `merge_maps/1` folds the fact maps with O(n²) `Map.merge`s. It is now the
+largest serial cost — `serial_shortcircuit`'s top rows are all of it:
+`lists:do_flatten/2` 5.6%, `Enum:map/2` 4.8%, `combinator/4-fun-1/2` 3.7%,
+`Enum:flat_map/2` 2.4%, `combinator/4` 2.3%, `group_by` 2.2% — the tell-tale
+`-combinator/4-fun-N-/1` family. A single fold that accumulates all four lists at once,
+sorting only when the children aren't already in priority order, and building the fact
+map in one reduce, removes most of it.
 
-`leaf/2` (evaluation.ex:81–104) is the next tier: it allocates a
+`leaf/2` (evaluation.ex:81–104) is the same tier: it allocates a
 `%{facts: %{field => fact_value}}` map and a `%Ecto.Changeset{}` struct per leaf, plus
 `String.to_atom/1` per run. It's harder to improve without changing the result shape,
 so treat it as second-order.
 
-### 4. Parallel: the per-rule task and the shared-almanac round-trips
+### 2. Parallel: the per-rule task and the shared-almanac round-trips
 
-In `parallel_wide_fast` the top rows are the parallel machinery, not the rules:
-`gen:do_call/4` 5.4%, `erlang:send/3` 3.5%, `gen:reply/2` 3.3%, `gen_server:loop/5`
-2.3%, `Task.Supervised.stream_spawn/4` 2.1%, `erlang:demonitor/2` 1.7%,
-`erlang:monitor/3` 1.6% — a `Task` is spawned **per rule** (`Task.async_stream`) and
-every fact lookup round-trips a GenServer call to the shared almanac
-(`Almanac.Shared.handle_call/3` 0.8%, `fact_value/3` 0.7%). This is the same trade-off
-the [schedule suite](benchmarks.md) makes visible: at these sizes the overhead
-dominates. Give each worker a **local snapshot** of facts (a plain map, a
-`:persistent_term`, or per-process ETS) instead of a GenServer call, and consider
-evaluating in-process when the rule count is small enough that per-rule `Task`s can't
-pay for themselves.
+`parallel_wide_fast` is now even more clearly the parallel machinery than the rules:
+`gen:do_call/4` 6.9%, `erlang:send/3` 4.3%, `gen:reply/2` 4.0%, `erlang:monitor/3` 2.7%,
+`erlang:demonitor/2` 2.6%, `Task.Supervised.stream_spawn/4` 2.5%, `gen_server:loop/5`
+2.4% — a `Task` is spawned **per rule** (`Task.async_stream`) and every fact lookup
+round-trips a GenServer call to the shared almanac. This is the same trade-off the
+[schedule suite](benchmarks.md) makes visible: at these sizes the overhead dominates.
+Give each worker a **local snapshot** of facts (a plain map, a `:persistent_term`, or
+per-process ETS) instead of a GenServer call, and evaluate in-process when the rule count
+is too small for per-rule `Task`s to pay for themselves.
+
+## What was addressed
+
+Two of the former top costs are fixed; re-profiling the same workloads confirms it:
+
+- **Operator explanations built once, not twice.** The built-in operators used to
+  `inspect` both operands twice and build both the pass and fail strings, discarding one
+  (`res/3`/`f/1`). They now `inspect` each operand once and build only the branch taken.
+  In `serial_wide_fast` `Kernel.inspect/2` fell from 3.2M to 1.6M calls for the same 800k
+  leaves (4 → 2 per leaf) and the workload's profiled time dropped ~28%
+  (13.6M → 9.8M µs).
+- **JSONPath compiled once, not per fact reference.** Each leaf's path was handed to
+  `JSONPath.values/2` as a raw string and re-parsed/validated on every leaf. It is now
+  precompiled to an AST at rule-registration (`Verdict.Types.Condition`) and evaluated
+  from the AST. `JSONPath.AST.validation/2` went from 14.3% of `serial_shortcircuit`
+  (17.5M calls) and 6.1% of `serial_realistic` to **absent** from every workload, and
+  `parallel_wide_fast`'s profiled time dropped ~23% (29.2M → 22.5M µs).
+
+The lazy-explanation variant — building the string only when a failing leaf is actually
+reported — is still on the table if the residual explain cost ever becomes worth chasing.
 
 ## Caveats
 

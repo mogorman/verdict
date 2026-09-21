@@ -212,40 +212,68 @@ defmodule Verdict.Operators do
     "#{f(actual)} #{name} #{f(value)} is #{if passed?, do: "true", else: "false"}"
   end
 
-  defp equal(a, b), do: res(a == b, "#{f(a)} equals #{f(b)}", "#{f(a)} is not equal to #{f(b)}")
+  # Each operator inspects both operands once and builds only the explanation for
+  # the branch that was taken (rather than building both the pass and fail strings
+  # and discarding one), keeping the per-leaf explanation cost down.
+  defp equal(a, b) do
+    {sa, sb} = {f(a), f(b)}
+    if a == b, do: {true, "#{sa} equals #{sb}"}, else: {false, "#{sa} is not equal to #{sb}"}
+  end
 
-  defp not_equal(a, b),
-    do: res(a != b, "#{f(a)} is not equal to #{f(b)}", "#{f(a)} equals #{f(b)}")
+  defp not_equal(a, b) do
+    {sa, sb} = {f(a), f(b)}
+    if a != b, do: {true, "#{sa} is not equal to #{sb}"}, else: {false, "#{sa} equals #{sb}"}
+  end
 
-  defp less_than(a, b), do: res(a < b, "#{f(a)} < #{f(b)}", "#{f(a)} is not less than #{f(b)}")
+  defp less_than(a, b) do
+    {sa, sb} = {f(a), f(b)}
+    if a < b, do: {true, "#{sa} < #{sb}"}, else: {false, "#{sa} is not less than #{sb}"}
+  end
 
-  defp less_than_inclusive(a, b),
-    do: res(a <= b, "#{f(a)} <= #{f(b)}", "#{f(a)} is not less than or equal to #{f(b)}")
+  defp less_than_inclusive(a, b) do
+    {sa, sb} = {f(a), f(b)}
 
-  defp greater_than(a, b),
-    do: res(a > b, "#{f(a)} > #{f(b)}", "#{f(a)} is not greater than #{f(b)}")
+    if a <= b,
+      do: {true, "#{sa} <= #{sb}"},
+      else: {false, "#{sa} is not less than or equal to #{sb}"}
+  end
 
-  defp greater_than_inclusive(a, b),
-    do: res(a >= b, "#{f(a)} >= #{f(b)}", "#{f(a)} is not greater than or equal to #{f(b)}")
+  defp greater_than(a, b) do
+    {sa, sb} = {f(a), f(b)}
+    if a > b, do: {true, "#{sa} > #{sb}"}, else: {false, "#{sa} is not greater than #{sb}"}
+  end
 
-  defp in_op(a, b),
-    do: res(is_list(b) and a in b, "#{f(a)} is in #{f(b)}", "#{f(a)} is not in #{f(b)}")
+  defp greater_than_inclusive(a, b) do
+    {sa, sb} = {f(a), f(b)}
 
-  defp not_in_op(a, b),
-    do: res(is_list(b) and a not in b, "#{f(a)} is not in #{f(b)}", "#{f(a)} is in #{f(b)}")
+    if a >= b,
+      do: {true, "#{sa} >= #{sb}"},
+      else: {false, "#{sa} is not greater than or equal to #{sb}"}
+  end
 
-  defp contains(a, b),
-    do: res(is_list(a) and b in a, "#{f(a)} contains #{f(b)}", "#{f(a)} does not contain #{f(b)}")
+  defp in_op(a, b) do
+    {sa, sb} = {f(a), f(b)}
+    passed? = is_list(b) and a in b
+    if passed?, do: {true, "#{sa} is in #{sb}"}, else: {false, "#{sa} is not in #{sb}"}
+  end
 
-  defp does_not_contain(a, b),
-    do:
-      res(
-        is_list(a) and b not in a,
-        "#{f(a)} does not contain #{f(b)}",
-        "#{f(a)} contains #{f(b)}"
-      )
+  defp not_in_op(a, b) do
+    {sa, sb} = {f(a), f(b)}
+    passed? = is_list(b) and a not in b
+    if passed?, do: {true, "#{sa} is not in #{sb}"}, else: {false, "#{sa} is in #{sb}"}
+  end
 
-  defp res(true, ok, _bad), do: {true, ok}
-  defp res(false, _ok, bad), do: {false, bad}
+  defp contains(a, b) do
+    {sa, sb} = {f(a), f(b)}
+    passed? = is_list(a) and b in a
+    if passed?, do: {true, "#{sa} contains #{sb}"}, else: {false, "#{sa} does not contain #{sb}"}
+  end
+
+  defp does_not_contain(a, b) do
+    {sa, sb} = {f(a), f(b)}
+    passed? = is_list(a) and b not in a
+    if passed?, do: {true, "#{sa} does not contain #{sb}"}, else: {false, "#{sa} contains #{sb}"}
+  end
+
   defp f(value), do: inspect(value)
 end

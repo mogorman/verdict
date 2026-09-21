@@ -167,6 +167,7 @@ defmodule Verdict.Types.Condition do
          operator: operator,
          value: get(map, "value"),
          path: path,
+         path_ast: compile_path(path),
          params: params,
          priority: priority(map),
          extra: extra(map)
@@ -182,6 +183,15 @@ defmodule Verdict.Types.Condition do
   defp with_priority(map, nil), do: map
   defp with_priority(map, 1), do: map
   defp with_priority(map, priority), do: Map.put(map, "priority", priority)
+
+  # Precompiles a leaf's JSONPath once, at cast time, so `Verdict.Evaluation` can
+  # run it against the fact value without re-parsing the path string on every run.
+  # `JSONPath.build/1` is non-raising: an invalid path is stored as `{:error, _}`
+  # and evaluates to `nil` at run time, exactly as re-parsing it would. A leaf
+  # without a `path` compiles to `nil`. The reference engine's member-access form
+  # `$.obj.['key']` is normalized to the RFC-9535 `$.obj['key']` here, once.
+  defp compile_path(nil), do: nil
+  defp compile_path(path), do: JSONPath.build(String.replace(path, ".[", "["))
 
   # A node's optional `extra` map carries arbitrary custom properties.
   defp extra(map) do
