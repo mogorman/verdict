@@ -280,9 +280,9 @@ The **completed result** of a run serializes the same way —
 [From JSON back to JSON: the completed result](docs/result_json.md) for the full
 flow and the report shape.
 
-## One-shot run
+## One-shot return
 
-`Verdict.run/3` builds an engine, registers the rules, and runs them in a
+`Verdict.return/3` builds an engine, registers the rules, and runs them in a
 single call. `rules` may be a JSON string (a rule object or an array of them),
 a map, a `Verdict.Rule` struct, or a list of any of those; `facts` may be a
 JSON string or a map of `name` to value (a value may be a function for a
@@ -298,18 +298,18 @@ rules = """
 """
 
 # {:ok, %Verdict.RunResult{events: [event]}}
-Verdict.run(rules, %{"personalFoulCount" => 6})
+Verdict.return(rules, %{"personalFoulCount" => 6})
 
 # same, but return the result directly and raise on a bad rule / malformed JSON
-%Verdict.RunResult{} = Verdict.run!(rules, %{"personalFoulCount" => 6})
+%Verdict.RunResult{} = Verdict.return!(rules, %{"personalFoulCount" => 6})
 
 # options pass straight through to the engine
-Verdict.run!(rules, %{"personalFoulCount" => 6},
+Verdict.return!(rules, %{"personalFoulCount" => 6},
   schedule: :parallel, strict: true, store: :genserver)
 ```
 
-`run/3` returns `{:ok, %RunResult{}}`, `{:error, changeset}` (an invalid rule),
-or `{:error, {:bad_json, message}}`. `run!/3` returns the `RunResult` directly
+`return/3` returns `{:ok, %RunResult{}}`, `{:error, changeset}` (an invalid rule),
+or `{:error, {:bad_json, message}}`. `return!/3` returns the `RunResult` directly
 and raises `Verdict.InvalidRuleError` (carrying the failing `changeset`) or
 `Verdict.InvalidJSONError` (carrying the decoder's `reason` and `input`).
 

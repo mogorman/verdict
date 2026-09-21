@@ -1,6 +1,6 @@
 defmodule Verdict.InvalidRuleError do
   @moduledoc """
-  Raised by `Verdict.run!/3` when a rule fails validation.
+  Raised by `Verdict.return!/3` when a rule fails validation.
 
   The failing rule's `Ecto.Changeset` is carried as `changeset`; its `errors`
   describe exactly what was invalid.

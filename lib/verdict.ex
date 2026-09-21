@@ -39,9 +39,9 @@ defmodule Verdict do
   runs first. Facts are computed lazily and cached in a per-run
   `Verdict.Almanac`.
 
-  ## One-shot run
+  ## One-shot return
 
-  `run/3` and `run!/3` build an engine, register the given rules, and run them
+  `return/3` and `return!/3` build an engine, register the given rules, and run them
   in a single call. `rules` may be a JSON string (a rule object or an array of
   them), a map, a `Verdict.Rule` struct, or a list of any of those; `facts`
   may be a JSON string or a map of `name` to value (a value may be a function
@@ -84,10 +84,10 @@ defmodule Verdict do
   is malformed. An unsupported input type (or an invalid `:store` / `:log`)
   raises `ArgumentError`.
   """
-  @spec run(rules_input(), facts_input(), keyword()) ::
+  @spec return(rules_input(), facts_input(), keyword()) ::
           {:ok, RunResult.t()} | {:error, Ecto.Changeset.t() | {:bad_json, String.t()}}
-  def run(rules, facts, opts \\ []) do
-    case do_run(rules, facts, opts) do
+  def return(rules, facts, opts \\ []) do
+    case do_return(rules, facts, opts) do
       {:ok, result} -> {:ok, result}
       {:error, {:bad_json, message, _input}} -> {:error, {:bad_json, message}}
       {:error, changeset} -> {:error, changeset}
@@ -95,7 +95,7 @@ defmodule Verdict do
   end
 
   @doc """
-  Like `run/3` but returns the `Verdict.RunResult` directly and raises on
+  Like `return/3` but returns the `Verdict.RunResult` directly and raises on
   failure:
 
     * `Verdict.InvalidRuleError` — a rule failed validation (carries the
@@ -104,9 +104,9 @@ defmodule Verdict do
       decoder's `reason` and the `input`);
     * `ArgumentError` — an input has an unsupported type.
   """
-  @spec run!(rules_input(), facts_input(), keyword()) :: RunResult.t()
-  def run!(rules, facts, opts \\ []) do
-    case do_run(rules, facts, opts) do
+  @spec return!(rules_input(), facts_input(), keyword()) :: RunResult.t()
+  def return!(rules, facts, opts \\ []) do
+    case do_return(rules, facts, opts) do
       {:ok, result} ->
         result
 
@@ -118,7 +118,7 @@ defmodule Verdict do
     end
   end
 
-  defp do_run(rules, facts, opts) do
+  defp do_return(rules, facts, opts) do
     with {:ok, decoded_rules} <- decode_if_json(rules),
          {:ok, rule_attrs} <- normalize_rules(decoded_rules),
          {:ok, decoded_facts} <- decode_if_json(facts),

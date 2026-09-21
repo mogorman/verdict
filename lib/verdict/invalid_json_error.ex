@@ -1,6 +1,6 @@
 defmodule Verdict.InvalidJSONError do
   @moduledoc """
-  Raised by `Verdict.run!/3` when a JSON string cannot be decoded.
+  Raised by `Verdict.return!/3` when a JSON string cannot be decoded.
 
   `reason` is the decoder's message and `input` is the offending JSON string.
   """
