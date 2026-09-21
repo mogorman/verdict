@@ -7,6 +7,9 @@
 # Benchee benchmark output (CSV + HTML), built via "mix bench".
 /bench/results/
 
+# :tprof profile output (per-function tables), built via "mix bench profile".
+/bench/profile/
+
 # The directory Mix downloads your dependencies sources to.
 /deps/
 

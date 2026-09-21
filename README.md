@@ -357,11 +357,13 @@ The project targets Elixir 1.20, which runs the compiler's native type checker b
 default. CI compiles with `--warnings-as-errors`, so type-checker warnings fail the
 build.
 
-Benchmarks (see [benchmarks](docs/benchmarks.md)), performance
-([performance](docs/performance.md)), and coverage (ExCoveralls):
+Benchmarks (see [benchmarks](docs/benchmarks.md)), profiling
+([profiling](docs/profiling.md)), performance ([performance](docs/performance.md)),
+and coverage (ExCoveralls):
 
 ```sh
 mix bench            # run the benchmark suites (schedule, store, fact, slowfacts, engines, matrix)
+mix bench profile    # profile Engine.run/3 to find hotspots (OTP :tprof)
 mix coveralls.html   # coverage report + HTML in cover/; fails if below the ratchet
 ```
 
