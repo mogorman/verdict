@@ -40,15 +40,16 @@ Scheduling is orthogonal to the store (`:serial` is the default).
 - **`:serial`** evaluates priority buckets one rule at a time. It has no extra
   machinery and is the right default.
 - **`:parallel`** runs the rules within each priority bucket concurrently over a
-  *shared* almanac (a short-lived GenServer). Every fact lookup then round-trips
-  through that process.
+  *shared* almanac (a short-lived GenServer). Constant facts are read from a
+  per-bucket snapshot held in each worker, so they need no round-trip; only
+  dynamic-fact lookups round-trip through the shared process.
 
 `:parallel` only wins when there is enough **independent, expensive** work to overlap
 — i.e. many rules, each with a wide condition tree or an expensive dynamic fact. For
-cheap, narrow rules the shared-almanac round-trips dominate and `:parallel` is
-*slower* than `:serial`. The `mix bench schedule` suite (wide vs narrow rules at
-several scales) exists to make that trade-off visible on your machine rather than to
-crown a universal winner.
+cheap, narrow rules the per-rule task overhead (and any dynamic-fact round-trips)
+dominate and `:parallel` is *slower* than `:serial`. The `mix bench schedule` suite
+(wide vs narrow rules at several scales) exists to make that trade-off visible on your
+machine rather than to crown a universal winner.
 
 ## Facts
 

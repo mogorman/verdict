@@ -14,7 +14,16 @@ defmodule Verdict.Evaluator do
    (bounded by `:parallel_concurrency`). Short-circuiting of a rule's conditions
    (and its `strict` override) live in `Verdict.Evaluation`.
   """
-  alias Verdict.{Almanac, Evaluation, EvaluationContext, Log, Rule, RuleResult, RunResult}
+  alias Verdict.{
+    Almanac,
+    Evaluation,
+    EvaluationContext,
+    Fact,
+    Log,
+    Rule,
+    RuleResult,
+    RunResult
+  }
 
   @type opts :: keyword()
 
@@ -32,15 +41,34 @@ defmodule Verdict.Evaluator do
     log = Keyword.get(opts, :log)
     almanac = Almanac.new(defs, runtime_facts, Keyword.put(opts, :backend, backend_for(schedule)))
 
+    operators = Keyword.get(opts, :operators, %{})
+    decorators = Keyword.get(opts, :decorators, %{})
+    conditions = Keyword.get(opts, :conditions, %{})
+    report = Keyword.get(opts, :report, :full)
+
+    # A flat fact-priority map (registered priorities, runtime facts overriding at
+    # 1) held locally so ordering a combinator's children never looks a fact's
+    # priority up through the almanac — that would be a GenServer round-trip per
+    # leaf in `:parallel`.
+    fact_priorities = fact_priorities(defs, runtime_facts)
+
+    # A per-run token for the process-local operator cache (see
+    # `Verdict.Evaluation`). Each process memoises the resolved function for a
+    # distinct `{operator, params}` under this token on first use, so only
+    # evaluated leaves pay to resolve their operator.
+    memo_token = make_ref()
+
     context = %EvaluationContext{
       almanac: almanac,
-      operators: Keyword.get(opts, :operators, %{}),
-      decorators: Keyword.get(opts, :decorators, %{}),
-      conditions: Keyword.get(opts, :conditions, %{}),
+      operators: operators,
+      decorators: decorators,
+      conditions: conditions,
+      fact_priorities: fact_priorities,
+      memo_token: memo_token,
       path_resolver: Keyword.get(opts, :path_resolver),
       allow_undefined_conditions: Keyword.get(opts, :allow_undefined_conditions, false),
       strict: Keyword.get(opts, :strict, false),
-      report: Keyword.get(opts, :report, :full),
+      report: report,
       log: log
     }
 
@@ -80,6 +108,7 @@ defmodule Verdict.Evaluator do
       run_result
     after
       Almanac.destroy(almanac)
+      Process.delete(memo_token)
     end
   end
 
@@ -134,6 +163,14 @@ defmodule Verdict.Evaluator do
         Log.warning(log, "run stopped")
         {:halt, acc}
       else
+        # One round-trip per bucket: snapshot the constant facts so every worker
+        # in this bucket reads them locally instead of round-tripping per leaf.
+        # Runtime facts added by earlier buckets are included (guaranteed
+        # cross-bucket visibility); facts added within *this* bucket still resolve
+        # through the live almanac (best-effort, as before).
+        snapshot = Almanac.constants(almanac)
+        bucket_context = %{context | fact_snapshot: snapshot}
+
         results =
           bucket
           |> Task.async_stream(
@@ -142,7 +179,7 @@ defmodule Verdict.Evaluator do
               # the run's consumer through a task link. The error is carried out as
               # data and re-raised (in bucket order) once the results are collected.
               try do
-                rule_result = evaluate_rule(rule, context, replace_facts)
+                rule_result = evaluate_rule(rule, bucket_context, replace_facts)
                 Log.info(log, fn -> rule_line(rule, rule_result) end)
                 emit_callbacks(callbacks, rule_result, almanac, log)
                 emit_callbacks(rule_callbacks[rule.id] || %{}, rule_result, almanac, log)
@@ -213,14 +250,26 @@ defmodule Verdict.Evaluator do
   defp resolve_event_params(event, _context), do: event
 
   defp from_results(results) do
+    {valid, invalid} = Enum.split_with(results, & &1.valid?)
+
     %RunResult{
-      events: Enum.filter(results, & &1.valid?) |> Enum.map(& &1.event),
-      failure_events: Enum.reject(results, & &1.valid?) |> Enum.map(& &1.event),
+      events: Enum.map(valid, & &1.event),
+      failure_events: Enum.map(invalid, & &1.event),
       results: results
     }
   end
 
   defp by_priority_desc(grouped) do
     Enum.sort_by(grouped, fn {priority, _} -> -priority end)
+  end
+
+  # The effective priority of a fact for ordering, mirroring how the almanac merges
+  # its defs: registered facts keep their priority, runtime facts (always 1) win.
+  defp fact_priorities(defs, runtime_facts) do
+    registered =
+      Map.new(defs || %{}, fn {id, %Fact{priority: priority}} -> {to_string(id), priority} end)
+
+    runtime = Map.new(runtime_facts || %{}, fn {id, _} -> {to_string(id), 1} end)
+    Map.merge(registered, runtime)
   end
 end

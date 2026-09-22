@@ -86,6 +86,16 @@ defmodule Verdict.Almanac.Shared do
   @spec stopped?(Almanac.t()) :: boolean()
   def stopped?(%Almanac{handle: pid}), do: GenServer.call(pid, {:stopped?})
 
+  @doc """
+  A snapshot of the current constant fact values (`%{id => value}`).
+
+  Used by the `:parallel` engine to hand each worker a read-only copy of the
+  constants at the start of a priority bucket, so a worker can read a constant
+  fact locally instead of round-tripping through this server for every leaf.
+  """
+  @spec constants(Almanac.t()) :: map()
+  def constants(%Almanac{handle: pid}), do: GenServer.call(pid, {:constants})
+
   # --- GenServer -------------------------------------------------------------
 
   @impl true
@@ -128,6 +138,16 @@ defmodule Verdict.Almanac.Shared do
       end
 
     {:reply, reply, state}
+  end
+
+  @impl true
+  def handle_call({:constants}, _from, state) do
+    constants =
+      state.defs
+      |> Enum.reject(fn {_, fact} -> Fact.is_dynamic?(fact) end)
+      |> Map.new(fn {id, %Fact{value: value}} -> {id, value} end)
+
+    {:reply, constants, state}
   end
 
   @impl true

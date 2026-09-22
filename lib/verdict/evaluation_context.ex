@@ -9,9 +9,23 @@ defmodule Verdict.EvaluationContext do
    * `operators` – custom operators registered on the engine
      (`%{name => fun}`); these take precedence over the built-ins;
    * `decorators` – operator decorators applied over a resolved operator;
-   * `conditions` – named conditions registered on the engine
-     (`%{name => Condition.t()}`), used to resolve `:ref` nodes;
-   * `path_resolver` – a `(value, path) -> term()` used to resolve a
+    * `conditions` – named conditions registered on the engine
+      (`%{name => Condition.t()}`), used to resolve `:ref` nodes;
+    * `fact_priorities` – a flat `%{fact_id => priority}` map (registered
+      priorities, runtime facts overriding at 1) used to order a combinator's
+      children. Held locally so ordering never looks a fact's priority up
+      through the almanac — that would be a GenServer round-trip per leaf in
+      `:parallel`;
+    * `fact_snapshot` – a per-bucket `%{fact_id => value}` snapshot of the
+      constant facts (the `:parallel` engine captures it once per priority
+      bucket). A constant fact present here is read locally instead of
+      round-tripping through the shared almanac; `nil` for `:serial`;
+    * `memo_token` – a per-run token for the process-local operator cache. The
+      resolved function for each distinct `{operator, params}` is computed once
+      (per process) and memoised under this token, so an evaluated leaf does not
+      re-resolve its operator name. Only *evaluated* leaves resolve, so a
+      short-circuited leaf costs nothing;
+    * `path_resolver` – a `(value, path) -> term()` used to resolve a
      condition's `path`; when `nil` the engine's default (JSONPath) resolver
      is used;
    * `allow_undefined_conditions` – when `false` (default) an unregistered
@@ -33,6 +47,9 @@ defmodule Verdict.EvaluationContext do
             operators: %{},
             decorators: %{},
             conditions: %{},
+            fact_priorities: %{},
+            fact_snapshot: nil,
+            memo_token: nil,
             path_resolver: nil,
             allow_undefined_conditions: false,
             strict: false,
@@ -44,6 +61,9 @@ defmodule Verdict.EvaluationContext do
           operators: %{String.t() => Verdict.Operators.boolean_operator()},
           decorators: %{String.t() => Verdict.Operators.decorator()},
           conditions: %{String.t() => Condition.t()},
+          fact_priorities: %{String.t() => integer()},
+          fact_snapshot: %{String.t() => term()} | nil,
+          memo_token: reference(),
           path_resolver: (term(), String.t() -> term()) | nil,
           allow_undefined_conditions: boolean(),
           strict: boolean(),

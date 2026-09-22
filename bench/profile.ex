@@ -17,12 +17,17 @@ defmodule Verdict.Bench.Profile do
   # Target amount of profiled work per configuration (~wall time, pre-overhead).
   @target_us 2_000_000
 
-  @doc "Profiles every configuration (each in the default `:full` report mode)."
+  # Each configuration is profiled in every report mode so the per-function
+  # hotspots (and the per-run wall time) can be compared mode by mode.
+  @reports [:full, :result_only, :failures_only]
+
+  @doc "Profiles every configuration, in every report mode."
   def run do
     File.mkdir_p!(Path.expand("bench/profile"))
 
-    for {label, build, run_opts} <- profiles() do
-      profile(label, build, run_opts)
+    for {label, build, run_opts} <- profiles(),
+        report <- @reports do
+      profile("#{label}_#{report}", build, Keyword.put(run_opts, :report, report))
     end
   end
 
@@ -71,9 +76,19 @@ defmodule Verdict.Bench.Profile do
     IO.puts("(written to #{path})")
   end
 
-  # Per-run wall time (unprofiled), in microseconds — used to size the loop.
+  # Per-run wall time (unprofiled, warm), in microseconds — the median of several
+  # samples after a warm-up, so the printed headline is a steady-state figure and
+  # the loop is sized against it. A single cold first run is dominated by
+  # one-time costs (task spawn, scheduler init), so it is not representative.
   defp estimate(engine, run_opts) do
-    {us, _result} = :timer.tc(fn -> Engine.run(engine, %{}, run_opts) end)
-    us
+    for _ <- 1..10, do: Engine.run(engine, %{}, run_opts)
+
+    samples =
+      for _ <- 1..50 do
+        {us, _result} = :timer.tc(fn -> Engine.run(engine, %{}, run_opts) end)
+        us
+      end
+
+    samples |> Enum.sort() |> Enum.at(25)
   end
 end

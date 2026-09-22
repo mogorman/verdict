@@ -11,9 +11,9 @@ defmodule Verdict.Almanac do
 
   The almanac is a thin, public API over a pluggable **backend** that stores the
   mutable run state. Both backends expose the same functions (`create/2`,
-  `fact_value/3`, `fact_priority/2`, `facts/1`, `add_runtime_fact/3`, `stop/1`,
-  `stopped?/1`, `destroy/1`), taking the almanac itself (so a fact that depends on
-  other facts can recurse through this API):
+    `fact_value/3`, `fact_priority/2`, `facts/1`, `constants/1`, `add_runtime_fact/3`,
+    `stop/1`, `stopped?/1`, `destroy/1`), taking the almanac itself (so a fact that
+    depends on other facts can recurse through this API):
 
     * `Verdict.Almanac.ProcessLocal` (default) – the state lives in the calling
       process's dictionary. Used by the `:serial` engine. A fact referenced by
@@ -96,6 +96,10 @@ defmodule Verdict.Almanac do
   @doc "Returns the `{fact_id, value}` pairs computed so far during the run."
   @spec facts(t()) :: [{String.t(), term()}]
   def facts(%__MODULE__{} = almanac), do: almanac.backend.facts(almanac)
+
+  @doc "Returns a snapshot of the current constant fact values (`%{fact_id => value}`)."
+  @spec constants(t()) :: %{String.t() => term()}
+  def constants(%__MODULE__{} = almanac), do: almanac.backend.constants(almanac)
 
   @doc """
   Adds a constant fact to the almanac mid-run, visible to subsequent fact

@@ -101,6 +101,15 @@ engine =
   best-effort check-then-put across processes, so a fact hit by several rules in
   the *same* bucket can be computed more than once (the value is identical for pure
   facts). `:serial` still guarantees single computation.
+- **Runtime-fact visibility is per-bucket** — before a bucket's rules start, the
+  `Evaluator` snapshots the current *constant* facts and hands the snapshot to every
+  worker in that bucket, so a constant fact reads locally instead of round-tripping
+  through the GenServer per leaf. Because the snapshot is taken once per bucket, a
+  runtime fact added by a callback in an *earlier* bucket is **always** visible to
+  *later* buckets, while one added within the *same* bucket is read through the live
+  shared almanac — visible to a sibling rule only if that rule happens to read it
+  after the callback ran (best-effort, as before). `:serial` never snapshots, so it
+  is unaffected.
 
 ## The store layer
 

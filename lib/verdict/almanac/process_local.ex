@@ -101,6 +101,16 @@ defmodule Verdict.Almanac.ProcessLocal do
   @spec stopped?(Almanac.t()) :: boolean()
   def stopped?(%Almanac{handle: token}), do: state(token).stopped
 
+  @doc "A snapshot of the current constant fact values (`%{id => value}`)."
+  @spec constants(Almanac.t()) :: map()
+  def constants(%Almanac{handle: token}) do
+    token
+    |> state()
+    |> Map.get(:defs)
+    |> Enum.reject(fn {_, fact} -> Fact.is_dynamic?(fact) end)
+    |> Map.new(fn {id, %Fact{value: value}} -> {id, value} end)
+  end
+
   defp state(token), do: Process.get(token)
 
   # Read-modify-write the run state. The transform is applied to the latest

@@ -147,6 +147,23 @@ defmodule Verdict.Evaluation do
     end
   end
 
+  # Reads a fact's value, preferring the run's local `fact_snapshot` (a per-bucket
+  # copy of the constant facts held by the `:parallel` engine) so a constant fact
+  # costs no almanac round-trip. Dynamic facts — and `:serial`, whose snapshot is
+  # `nil` — fall through to the almanac.
+  defp read_fact(context, fact, params) do
+    case context.fact_snapshot do
+      nil ->
+        Almanac.fact_value(context.almanac, fact, params || %{})
+
+      snapshot ->
+        case Map.fetch(snapshot, fact) do
+          {:ok, value} -> value
+          :error -> Almanac.fact_value(context.almanac, fact, params || %{})
+        end
+    end
+  end
+
   defp leaf_bool(
          %Condition{
            fact: fact,
@@ -158,10 +175,10 @@ defmodule Verdict.Evaluation do
          },
          context
        ) do
-    fact_value = Almanac.fact_value(context.almanac, fact, params || %{})
+    fact_value = read_fact(context, fact, params)
     actual = if path, do: resolve_path!(fact_value, path, path_ast, context), else: fact_value
     resolved_value = resolve_value(value, context)
-    operator_bool(context, operator, params).(actual, resolved_value)
+    memo_op(context, operator, params).(actual, resolved_value)
   end
 
   defp combinator_bool(kind, children, context, seen) do
@@ -210,10 +227,10 @@ defmodule Verdict.Evaluation do
          context
        ) do
     field = String.to_atom(fact)
-    fact_value = Almanac.fact_value(context.almanac, fact, params || %{})
+    fact_value = read_fact(context, fact, params)
     actual = if path, do: resolve_path!(fact_value, path, path_ast, context), else: fact_value
     resolved_value = resolve_value(value, context)
-    {passed?, explanation} = leaf_operator(context, operator, params).(actual, resolved_value)
+    {passed?, explanation} = memo_op(context, operator, params).(actual, resolved_value)
     data = %{facts: %{field => fact_value}}
 
     Log.debug(context.log, fn ->
@@ -253,7 +270,7 @@ defmodule Verdict.Evaluation do
       fact = value["fact"] || value[:fact]
       params = value["params"] || value[:params] || %{}
       path = value["path"] || value[:path]
-      fact_value = Almanac.fact_value(context.almanac, fact, params)
+      fact_value = read_fact(context, fact, params)
       # A fact-reference value's path is data (not a precompiled leaf path), so it
       # is compiled on demand (`path_ast: nil` falls back to parsing here).
       if path, do: resolve_path!(fact_value, path, nil, context), else: fact_value
@@ -288,18 +305,12 @@ defmodule Verdict.Evaluation do
       end)
     end
 
-    changes =
-      if context.report == :full do
-        Enum.map(evaluated, fn cs -> cs.changes end) |> List.flatten()
-      else
-        []
-      end
+    changes = if context.report == :full, do: Enum.flat_map(evaluated, & &1.changes), else: []
 
-    errors =
-      if outcome, do: [], else: Enum.map(evaluated, fn cs -> cs.errors end) |> List.flatten()
+    errors = if outcome, do: [], else: Enum.flat_map(evaluated, & &1.errors)
 
     facts = merge_maps(Enum.map(evaluated, fn cs -> cs.data[:facts] end))
-    empty_values = Enum.map(evaluated, fn cs -> cs.empty_values end) |> List.flatten()
+    empty_values = Enum.flat_map(evaluated, & &1.empty_values)
 
     build(%{facts: facts}, changes, errors, empty_values ++ skipped, outcome)
   end
@@ -382,36 +393,52 @@ defmodule Verdict.Evaluation do
   end
 
   # A node's effective evaluation priority. An explicit condition priority wins;
-  # a leaf without one takes its fact's registered priority; anything else is 1.
+  # a leaf without one takes its fact's priority from the run's local
+  # `fact_priorities` map (built once in `Verdict.Evaluator`) — so ordering never
+  # looks a fact's priority up through the almanac (a per-leaf GenServer
+  # round-trip in `:parallel`); anything unregistered is 1.
   defp effective_priority(%Condition{kind: :leaf, fact: fact, priority: priority}, context) do
-    priority || Almanac.fact_priority(context.almanac, fact)
+    priority || Map.get(context.fact_priorities, fact, 1)
   end
 
   defp effective_priority(%Condition{priority: priority}, _context), do: priority || 1
 
-  # Resolves the operator named `operator` for this context: a plain built-in
-  # keeps its explanation, while a custom operator or a `decorator:…:operator`
-  # composite (built from the engine's registered operators/decorators) is
-  # wrapped with a generated explanation. The leaf's `params` are handed to the
-  # operator so a 3-arity custom operator can be parameterized by the condition.
-  defp operator_fn(context, operator, params),
-    do: Operators.resolve(context.operators, context.decorators, operator, params || %{})
+  # The operator function for a leaf. The resolved function for each distinct
+  # `{name, params}` is memoised in a process-local cache under the run's
+  # `memo_token`, so the operator name is resolved **once per process** rather
+  # than on every leaf. Resolution happens here, lazily, only for a leaf that is
+  # actually evaluated — so a short-circuited leaf costs nothing and a rule whose
+  # only bad operator is never reached cannot raise. In `:parallel` each worker
+  # process keeps its own cache (the process dictionary is per-process).
+  defp memo_op(context, name, params) do
+    key = {name, params || %{}}
+    token = context.memo_token
+    cache = Process.get(token) || %{}
 
-  # The operator for a changeset-path leaf: `:full` builds its explanation,
-  # `:failures_only` builds one only on failure (a pass yields `{true, nil}`).
-  defp leaf_operator(context, operator, params) do
-    case context.report do
-      :full ->
-        operator_fn(context, operator, params)
+    case Map.fetch(cache, key) do
+      {:ok, op} ->
+        op
 
-      :failures_only ->
-        Operators.lazy(context.operators, context.decorators, operator, params || %{})
+      :error ->
+        op = resolve_op(context, name, params || %{})
+        Process.put(token, Map.put(cache, key, op))
+        op
     end
   end
 
-  # The pure-boolean operator for a `:result_only` leaf (no explanation built).
-  defp operator_bool(context, operator, params),
-    do: Operators.bool(context.operators, context.decorators, operator, params || %{})
+  # The report-mode-appropriate operator for a leaf. `:result_only` returns a pure
+  # boolean. Both changeset modes (`:full` and `:failures_only`) use the
+  # **fail-only** operator: a passing leaf records `leaf_info` (raw
+  # `actual`/`operator`/`value`) in `changes`, never an explanation string, so the
+  # pass explanation is never built; only a failing leaf builds one (into
+  # `errors`). This is what lets `:full` skip `inspect`-ing the operands of every
+  # passing leaf. Raises `ArgumentError` for an unknown operator / decorator.
+  defp resolve_op(context, name, params) do
+    case context.report do
+      :result_only -> Operators.bool(context.operators, context.decorators, name, params)
+      _ -> Operators.lazy(context.operators, context.decorators, name, params)
+    end
+  end
 
   defp collect_leaves(children) do
     Enum.flat_map(children, &leaves_of/1)
