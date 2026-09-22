@@ -11,6 +11,7 @@ defmodule Verdict.Almanac.ProcessLocal do
   alias Verdict.{Almanac, Fact, UndefinedFactError}
 
   @doc "Creates the process-local state and returns its token (the handle)."
+  @spec create(map(), keyword()) :: reference()
   def create(defs, _opts) do
     state = %{defs: defs, cache: %{}, stopped: false}
     token = make_ref()
@@ -19,12 +20,14 @@ defmodule Verdict.Almanac.ProcessLocal do
   end
 
   @doc "Releases the process-local state."
+  @spec destroy(Almanac.t()) :: :ok
   def destroy(%Almanac{handle: token}) do
     Process.delete(token)
     :ok
   end
 
   @doc "Computes (and caches) the value of `fact_id`."
+  @spec fact_value(Almanac.t(), String.t(), map() | nil) :: term()
   def fact_value(
         %Almanac{handle: token, allow_undefined_facts: allow?} = almanac,
         fact_id,
@@ -62,6 +65,7 @@ defmodule Verdict.Almanac.ProcessLocal do
   end
 
   @doc "The registered priority of `fact_id` (default `1`)."
+  @spec fact_priority(Almanac.t(), String.t() | atom()) :: integer()
   def fact_priority(%Almanac{handle: token}, fact_id) do
     case Map.get(state(token).defs, to_string(fact_id)) do
       %Fact{priority: priority} -> priority
@@ -70,6 +74,7 @@ defmodule Verdict.Almanac.ProcessLocal do
   end
 
   @doc "The `{fact_id, value}` pairs computed so far."
+  @spec facts(Almanac.t()) :: [{String.t(), term()}]
   def facts(%Almanac{handle: token}) do
     token
     |> state()
@@ -78,6 +83,7 @@ defmodule Verdict.Almanac.ProcessLocal do
   end
 
   @doc "Adds a constant fact to the run state, visible to later lookups."
+  @spec add_runtime_fact(Almanac.t(), String.t() | atom(), term()) :: :ok
   def add_runtime_fact(%Almanac{handle: token}, fact_id, value) do
     id = to_string(fact_id)
     put_state(token, fn s -> %{s | defs: Map.put(s.defs, id, Fact.new(id, value))} end)
@@ -85,12 +91,14 @@ defmodule Verdict.Almanac.ProcessLocal do
   end
 
   @doc "Marks the run as stopped."
+  @spec stop(Almanac.t()) :: :ok
   def stop(%Almanac{handle: token}) do
     put_state(token, fn s -> %{s | stopped: true} end)
     :ok
   end
 
   @doc "True once `stop/1` has been called for this run."
+  @spec stopped?(Almanac.t()) :: boolean()
   def stopped?(%Almanac{handle: token}), do: state(token).stopped
 
   defp state(token), do: Process.get(token)

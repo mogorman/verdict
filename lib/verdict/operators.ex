@@ -146,6 +146,44 @@ defmodule Verdict.Operators do
     end
   end
 
+  # A pure-boolean operator for `:result_only` runs: the built-in comparison with
+  # no explanation string built. A non-built-in name (custom operator or
+  # `decorator:…:operator` composite) falls back to `resolve/4` with its
+  # explanation discarded.
+  @doc false
+  @spec bool(map(), map(), String.t(), map()) :: (term(), term() -> boolean())
+  def bool(custom_operators, custom_decorators, name, params \\ %{}) do
+    parts = String.split(name, ":")
+    base = List.last(parts)
+
+    if Enum.drop(parts, -1) == [] and base in known() and not Map.has_key?(custom_operators, base) do
+      builtin_bool(base)
+    else
+      op = resolve(custom_operators, custom_decorators, name, params)
+
+      fn actual, value ->
+        {passed?, _} = op.(actual, value)
+        passed?
+      end
+    end
+  end
+
+  # A fail-only operator for `:failures_only` runs: a passing comparison returns
+  # `{true, nil}` (no `inspect` is run) while a failing one builds its
+  # explanation. Non-built-in names fall back to `resolve/4`.
+  @doc false
+  @spec lazy(map(), map(), String.t(), map()) :: (term(), term() -> {boolean(), String.t() | nil})
+  def lazy(custom_operators, custom_decorators, name, params \\ %{}) do
+    parts = String.split(name, ":")
+    base = List.last(parts)
+
+    if Enum.drop(parts, -1) == [] and base in known() and not Map.has_key?(custom_operators, base) do
+      builtin_lazy(base)
+    else
+      resolve(custom_operators, custom_decorators, name, params)
+    end
+  end
+
   # A plain custom operator, invoked with the condition's `params` when it is a
   # 3-arity function. A `{passed?, explanation}` return is used verbatim; a bare
   # boolean gets a generated explanation. An unknown base falls through to `get/1`,
@@ -276,4 +314,68 @@ defmodule Verdict.Operators do
   end
 
   defp f(value), do: inspect(value)
+
+  # Pure-boolean built-ins (`:result_only`): the same comparison as the operator
+  # above, with no explanation string built.
+  defp builtin_bool("equal"), do: fn a, b -> a == b end
+  defp builtin_bool("notEqual"), do: fn a, b -> a != b end
+  defp builtin_bool("lessThan"), do: fn a, b -> a < b end
+  defp builtin_bool("lessThanInclusive"), do: fn a, b -> a <= b end
+  defp builtin_bool("greaterThan"), do: fn a, b -> a > b end
+  defp builtin_bool("greaterThanInclusive"), do: fn a, b -> a >= b end
+  defp builtin_bool("in"), do: fn a, b -> is_list(b) and a in b end
+  defp builtin_bool("notIn"), do: fn a, b -> is_list(b) and a not in b end
+  defp builtin_bool("contains"), do: fn a, b -> is_list(a) and b in a end
+  defp builtin_bool("doesNotContain"), do: fn a, b -> is_list(a) and b not in a end
+
+  # Fail-only built-ins (`:failures_only`): a pass returns `{true, nil}` (no
+  # `inspect`); a fail builds the same explanation string the operator above
+  # would, so a failing leaf's report is identical to `:full`.
+  defp builtin_lazy("equal"),
+    do: fn a, b ->
+      if a == b, do: {true, nil}, else: {false, "#{f(a)} is not equal to #{f(b)}"}
+    end
+
+  defp builtin_lazy("notEqual"),
+    do: fn a, b -> if a != b, do: {true, nil}, else: {false, "#{f(a)} equals #{f(b)}"} end
+
+  defp builtin_lazy("lessThan"),
+    do: fn a, b ->
+      if a < b, do: {true, nil}, else: {false, "#{f(a)} is not less than #{f(b)}"}
+    end
+
+  defp builtin_lazy("lessThanInclusive"),
+    do: fn a, b ->
+      if a <= b, do: {true, nil}, else: {false, "#{f(a)} is not less than or equal to #{f(b)}"}
+    end
+
+  defp builtin_lazy("greaterThan"),
+    do: fn a, b ->
+      if a > b, do: {true, nil}, else: {false, "#{f(a)} is not greater than #{f(b)}"}
+    end
+
+  defp builtin_lazy("greaterThanInclusive"),
+    do: fn a, b ->
+      if a >= b, do: {true, nil}, else: {false, "#{f(a)} is not greater than or equal to #{f(b)}"}
+    end
+
+  defp builtin_lazy("in"),
+    do: fn a, b ->
+      if is_list(b) and a in b, do: {true, nil}, else: {false, "#{f(a)} is not in #{f(b)}"}
+    end
+
+  defp builtin_lazy("notIn"),
+    do: fn a, b ->
+      if is_list(b) and a not in b, do: {true, nil}, else: {false, "#{f(a)} is in #{f(b)}"}
+    end
+
+  defp builtin_lazy("contains"),
+    do: fn a, b ->
+      if is_list(a) and b in a, do: {true, nil}, else: {false, "#{f(a)} does not contain #{f(b)}"}
+    end
+
+  defp builtin_lazy("doesNotContain"),
+    do: fn a, b ->
+      if is_list(a) and b not in a, do: {true, nil}, else: {false, "#{f(a)} contains #{f(b)}"}
+    end
 end

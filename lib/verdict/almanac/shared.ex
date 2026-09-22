@@ -21,15 +21,18 @@ defmodule Verdict.Almanac.Shared do
   # --- backend API (dispatched to by Verdict.Almanac) ----------------------
 
   @doc "Starts the per-run state GenServer and returns its pid (the handle)."
+  @spec create(map(), keyword()) :: pid()
   def create(defs, _opts) do
     {:ok, pid} = GenServer.start(__MODULE__, %{defs: defs, cache: %{}, stopped: false})
     pid
   end
 
   @doc "Stops the per-run state GenServer."
+  @spec destroy(Almanac.t()) :: :ok
   def destroy(%Almanac{handle: pid}), do: GenServer.stop(pid)
 
   @doc "Computes (and caches) the value of `fact_id` in the calling worker."
+  @spec fact_value(Almanac.t(), String.t(), map() | nil) :: term()
   def fact_value(%Almanac{handle: pid, allow_undefined_facts: allow?} = almanac, fact_id, params) do
     params = params || %{}
 
@@ -62,20 +65,25 @@ defmodule Verdict.Almanac.Shared do
   end
 
   @doc "The registered priority of `fact_id` (default `1`)."
+  @spec fact_priority(Almanac.t(), String.t() | atom()) :: integer()
   def fact_priority(%Almanac{handle: pid}, fact_id),
     do: GenServer.call(pid, {:fact_priority, fact_id})
 
   @doc "The `{fact_id, value}` pairs computed so far."
+  @spec facts(Almanac.t()) :: [{String.t(), term()}]
   def facts(%Almanac{handle: pid}), do: GenServer.call(pid, {:facts})
 
   @doc "Adds a constant fact to the run state, visible to later lookups."
+  @spec add_runtime_fact(Almanac.t(), String.t() | atom(), term()) :: :ok
   def add_runtime_fact(%Almanac{handle: pid}, fact_id, value),
     do: GenServer.call(pid, {:add_runtime_fact, fact_id, value})
 
   @doc "Marks the run as stopped."
+  @spec stop(Almanac.t()) :: :ok
   def stop(%Almanac{handle: pid}), do: GenServer.call(pid, {:stop})
 
   @doc "True once `stop/1` has been called for this run."
+  @spec stopped?(Almanac.t()) :: boolean()
   def stopped?(%Almanac{handle: pid}), do: GenServer.call(pid, {:stopped?})
 
   # --- GenServer -------------------------------------------------------------

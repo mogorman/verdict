@@ -70,6 +70,19 @@ defmodule Verdict.ConditionTest do
     test "errors on an unknown node shape" do
       assert {:error, _} = ConditionType.from_map(%{"foo" => "bar"})
     end
+
+    test "errors when an all contains an invalid child" do
+      assert {:error, _} = ConditionType.from_map(%{"all" => [%{"foo" => "bar"}]})
+    end
+
+    test "errors when a not contains an invalid child" do
+      assert {:error, _} = ConditionType.from_map(%{"not" => %{"foo" => "bar"}})
+    end
+
+    test "coerces a non-map extra to an empty map" do
+      assert {:ok, %Condition{kind: :ref, extra: %{}}} =
+               ConditionType.from_map(%{"condition" => "x", "extra" => "not-a-map"})
+    end
   end
 
   describe "ConditionType.to_map/1 (round-trip)" do
@@ -95,7 +108,9 @@ defmodule Verdict.ConditionTest do
   describe "ConditionType Ecto.Type callbacks" do
     test "type, embed_as, load, dump, and equal?" do
       assert ConditionType.type() == :map
-      assert ConditionType.embed_as(:column) == :map
+      # `embed_as/1` must be one of Ecto's supported values (`:self | :dump`);
+      # Ecto only consumes those in embedded_dump/embedded_load.
+      assert ConditionType.embed_as(:column) == :dump
 
       {:ok, tree} = ConditionType.from_map(%{"fact" => "a", "operator" => "equal", "value" => 1})
       assert {:ok, ^tree} = ConditionType.load(tree)

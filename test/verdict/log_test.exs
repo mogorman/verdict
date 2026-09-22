@@ -98,6 +98,17 @@ defmodule Verdict.LogTest do
       assert built? == :ok
       refute Process.delete(:log_built)
     end
+
+    test "a plain string message is emitted when the level allows" do
+      cap = LogCapture.start()
+
+      try do
+        assert :ok = Log.info(:info, "plain emitted message")
+        assert has?(LogCapture.messages(cap), "plain emitted message")
+      after
+        LogCapture.stop(cap)
+      end
+    end
   end
 
   # --- integration: the engine emits through Logger ---------------------------

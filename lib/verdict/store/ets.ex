@@ -132,22 +132,13 @@ defmodule Verdict.Store.Ets do
     rules = :"#{base}.rules"
     facts = :"#{base}.facts"
 
-    # `:ets.new/2` returns the table's tid (its name, for a named table) on
-    # success, or `{:error, reason}` if the name is already in use.
-    case :ets.new(rules, [:set, :public, :named_table]) do
-      ^rules ->
-        case :ets.new(facts, [:set, :public, :named_table]) do
-          ^facts ->
-            {:ok, %{rules: rules, facts: facts, operators: %{}, decorators: %{}, conditions: %{}}}
+    # `:ets.new/2` registers the named table; a name collision raises
+    # `ArgumentError` out of `init/1`, which the GenServer turns into a failed
+    # start (surfaced by `create/1`).
+    _ = :ets.new(rules, [:set, :public, :named_table])
+    _ = :ets.new(facts, [:set, :public, :named_table])
 
-          other ->
-            :ets.delete(rules)
-            {:stop, "failed to create ETS table #{inspect(facts)}: #{inspect(other)}"}
-        end
-
-      other ->
-        {:stop, "failed to create ETS table #{inspect(rules)}: #{inspect(other)}"}
-    end
+    {:ok, %{rules: rules, facts: facts, operators: %{}, decorators: %{}, conditions: %{}}}
   end
 
   @impl true
@@ -253,6 +244,11 @@ defmodule Verdict.Store.Ets do
 
   defp rewrite_rules(state, remaining) do
     :ets.delete_all_objects(state.rules)
-    for {id, rule} <- remaining, do: :ets.insert(state.rules, {id, rule})
+
+    for {id, rule} <- remaining do
+      :ets.insert(state.rules, {id, rule})
+    end
+
+    :ok
   end
 end

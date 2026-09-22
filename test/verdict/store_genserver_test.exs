@@ -84,4 +84,14 @@ defmodule Verdict.StoreGenServerTest do
     assert Process.alive?(pid)
     GenServer.stop(pid)
   end
+
+  test "create/1 raises when the store name is already taken" do
+    name = :"dup_gv_#{System.unique_integer([:positive])}"
+    pid = GStore.create(name: name)
+    assert is_pid(pid)
+
+    assert_raise RuntimeError, ~r/failed to start store/, fn -> GStore.create(name: name) end
+
+    GenServer.stop(pid)
+  end
 end

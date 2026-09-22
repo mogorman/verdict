@@ -94,8 +94,6 @@ defmodule Verdict.Rule do
     end
   end
 
-  defp validate_conditions_tree(_field, nil), do: []
-
   defp validate_conditions_tree(field, %Condition{} = tree) do
     tree
     |> walk("$")

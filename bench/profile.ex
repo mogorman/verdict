@@ -17,7 +17,7 @@ defmodule Verdict.Bench.Profile do
   # Target amount of profiled work per configuration (~wall time, pre-overhead).
   @target_us 2_000_000
 
-  @doc "Profiles every configuration."
+  @doc "Profiles every configuration (each in the default `:full` report mode)."
   def run do
     File.mkdir_p!(Path.expand("bench/profile"))
 

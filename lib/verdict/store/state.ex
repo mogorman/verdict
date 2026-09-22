@@ -32,13 +32,16 @@ defmodule Verdict.Store.State do
         }
 
   @doc "A fresh, empty state."
+  @spec new() :: t()
   def new, do: %__MODULE__{}
 
+  @spec add_rule(t(), Rule.t()) :: {t(), Rule.t()}
   def add_rule(%__MODULE__{} = state, %Rule{} = rule) do
     rule = ensure_id(rule)
     {%{state | rules: Map.put(state.rules, rule.id, rule)}, rule}
   end
 
+  @spec remove_rule(t(), String.t() | atom()) :: {t(), boolean()}
   def remove_rule(%__MODULE__{} = state, key) do
     cond do
       Map.has_key?(state.rules, key) ->
@@ -52,59 +55,74 @@ defmodule Verdict.Store.State do
     end
   end
 
+  @spec get_rule(t(), String.t()) :: {t(), Rule.t() | nil}
   def get_rule(%__MODULE__{} = state, id) when is_binary(id) do
     {state, Map.get(state.rules, id)}
   end
 
+  @spec rules(t()) :: {t(), [Rule.t()]}
   def rules(%__MODULE__{} = state) do
     {state, Map.values(state.rules)}
   end
 
+  @spec add_fact(t(), Fact.t()) :: t()
   def add_fact(%__MODULE__{} = state, %Fact{} = fact) do
     %{state | facts: Map.put(state.facts, fact.id, fact)}
   end
 
+  @spec remove_fact(t(), String.t()) :: t()
   def remove_fact(%__MODULE__{} = state, id) when is_binary(id) do
     %{state | facts: Map.delete(state.facts, id)}
   end
 
+  @spec facts(t()) :: {t(), Fact.registry()}
   def facts(%__MODULE__{} = state) do
     {state, state.facts}
   end
 
+  @spec add_operator(t(), String.t(), term()) :: t()
   def add_operator(%__MODULE__{} = state, name, fun) when is_binary(name),
     do: %{state | operators: Map.put(state.operators, name, fun)}
 
+  @spec remove_operator(t(), String.t()) :: t()
   def remove_operator(%__MODULE__{} = state, name) when is_binary(name),
     do: %{state | operators: Map.delete(state.operators, name)}
 
+  @spec operators(t()) :: {t(), map()}
   def operators(%__MODULE__{} = state) do
     {state, state.operators}
   end
 
+  @spec add_decorator(t(), String.t(), term()) :: t()
   def add_decorator(%__MODULE__{} = state, name, fun) when is_binary(name),
     do: %{state | decorators: Map.put(state.decorators, name, fun)}
 
+  @spec remove_decorator(t(), String.t()) :: t()
   def remove_decorator(%__MODULE__{} = state, name) when is_binary(name),
     do: %{state | decorators: Map.delete(state.decorators, name)}
 
+  @spec decorators(t()) :: {t(), map()}
   def decorators(%__MODULE__{} = state) do
     {state, state.decorators}
   end
 
+  @spec add_condition(t(), String.t(), term()) :: t()
   def add_condition(%__MODULE__{} = state, name, condition) when is_binary(name),
     do: %{state | conditions: Map.put(state.conditions, name, condition)}
 
+  @spec remove_condition(t(), String.t()) :: {t(), boolean()}
   def remove_condition(%__MODULE__{} = state, name) when is_binary(name) do
     removed = Map.has_key?(state.conditions, name)
     {%{state | conditions: Map.delete(state.conditions, name)}, removed}
   end
 
+  @spec conditions(t()) :: {t(), map()}
   def conditions(%__MODULE__{} = state) do
     {state, state.conditions}
   end
 
   @doc "Returns `rule` with a generated `id` if it does not already have one."
+  @spec ensure_id(Rule.t()) :: Rule.t()
   def ensure_id(%Rule{id: id} = rule) when is_binary(id), do: rule
   def ensure_id(%Rule{} = rule), do: %{rule | id: Ecto.UUID.generate()}
 end

@@ -238,6 +238,48 @@ defmodule Verdict.EngineTest do
     end
   end
 
+  describe "remove_fact/2" do
+    test "unregisters a fact" do
+      engine = Engine.new() |> Engine.add_fact("x", 1)
+
+      {:ok, engine, _} =
+        Engine.add_rule(engine, %{
+          event: %{type: "e"},
+          conditions: %{all: [%{fact: "x", operator: "equal", value: 1}]}
+        })
+
+      engine = Engine.remove_fact(engine, "x")
+      assert_raise Verdict.UndefinedFactError, fn -> Engine.run(engine, %{}) end
+    end
+  end
+
+  describe "remove_condition/2" do
+    test "removes a named condition and reports whether it was present" do
+      {:ok, engine} =
+        Engine.set_condition(Engine.new(), "c", %{
+          all: [%{fact: "x", operator: "equal", value: 1}]
+        })
+
+      {engine, true} = Engine.remove_condition(engine, "c")
+      {_engine, false} = Engine.remove_condition(engine, "does-not-exist")
+    end
+  end
+
+  describe "on_rule/4" do
+    test "appends callbacks for the same rule and event type" do
+      {:ok, engine, rule} =
+        Engine.add_rule(Engine.new(), %{
+          event: %{type: "e"},
+          conditions: %{all: [%{fact: "x", operator: "equal", value: 1}]}
+        })
+
+      engine = Engine.on_rule(engine, rule.id, "success", fn _e, _a, _rr -> :ok end)
+      engine = Engine.on_rule(engine, rule.id, "success", fn _e, _a, _rr -> :ok end)
+
+      assert length(engine.rule_events[rule.id]["success"]) == 2
+    end
+  end
+
   describe "store backend selection" do
     test "pure is the default" do
       assert %Engine{store_module: Verdict.Store.Pure} = Engine.new()

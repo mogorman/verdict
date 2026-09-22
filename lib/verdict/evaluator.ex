@@ -40,6 +40,7 @@ defmodule Verdict.Evaluator do
       path_resolver: Keyword.get(opts, :path_resolver),
       allow_undefined_conditions: Keyword.get(opts, :allow_undefined_conditions, false),
       strict: Keyword.get(opts, :strict, false),
+      report: Keyword.get(opts, :report, :full),
       log: log
     }
 
@@ -166,9 +167,15 @@ defmodule Verdict.Evaluator do
   end
 
   defp evaluate_rule(rule, context, replace_facts) do
-    changeset = Evaluation.eval(rule.conditions, context)
     event = if replace_facts, do: resolve_event_params(rule.event, context), else: rule.event
-    %RuleResult{rule: rule, changeset: changeset, event: event, valid?: changeset.valid?}
+
+    case Evaluation.eval(rule.conditions, context) do
+      passed? when is_boolean(passed?) ->
+        %RuleResult{rule: rule, changeset: nil, event: event, valid?: passed?}
+
+      changeset ->
+        %RuleResult{rule: rule, changeset: changeset, event: event, valid?: changeset.valid?}
+    end
   end
 
   # Fires a rule's events. A successful rule emits "success" (with the full

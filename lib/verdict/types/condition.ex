@@ -40,7 +40,7 @@ defmodule Verdict.Types.Condition do
   def dump(term), do: {:ok, to_map(term)}
 
   @impl true
-  def embed_as(_type), do: :map
+  def embed_as(_type), do: :dump
 
   @impl true
   def equal?(a, b), do: a == b

@@ -33,7 +33,7 @@ defmodule Mix.Tasks.Bench do
   def run(args) do
     Mix.Task.run("app.config")
     File.mkdir_p!(Path.expand("bench/results"))
-    Code.ensure_loaded(:tprof)
+    _ = Code.ensure_loaded(:tprof)
     require_file("bench/report.ex")
     require_file("bench/support.ex")
     require_file("bench/data.ex")
@@ -62,19 +62,13 @@ defmodule Mix.Tasks.Bench do
     raise Mix.Error, "usage: mix bench [#{Enum.join(Enum.map(@targets, &elem(&1, 0)), "|")}]"
   end
 
-  # `Code.require_file/1` returns `:ok` (already loaded), `[{module, beam}, ..]`
-  # (freshly compiled), or `{:error, {module, term, stack}}` (compile failure).
+  # `Code.require_file/1` returns `nil` if the file is already loaded and a
+  # `[{module, beam}]` list if it was just compiled; a missing or uncompilable file
+  # raises `Code.Error`, which surfaces as the task failing.
   defp require_file(path) do
     case Code.require_file(path) do
-      :ok ->
-        :ok
-
-      [{_module, _beam} | _] ->
-        :ok
-
-      {:error, {module, term, _stack}} ->
-        raise Mix.Error,
-              "failed to require #{path} (#{inspect(module)}: #{inspect(term)})"
+      nil -> :ok
+      list when is_list(list) -> :ok
     end
   end
 end

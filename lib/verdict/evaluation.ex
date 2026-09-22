@@ -37,10 +37,39 @@ defmodule Verdict.Evaluation do
 
   alias Verdict.{Almanac, Condition, EvaluationContext, Log, Operators}
 
-  @doc "Evaluates a condition tree to a pure `Ecto.Changeset`."
-  @spec eval(Condition.t(), EvaluationContext.t()) :: Ecto.Changeset.t()
-  def eval(node, context), do: eval_node(node, context, MapSet.new())
+  # Cycle detection for condition references uses a `MapSet` (`seen`). Dialyzer
+  # refines a local `MapSet` down to its concrete internals and then reports a
+  # spurious `call_without_opaque` on the (correct) `MapSet.put/2` calls. Opaque
+  # warnings are an always-on core check (no flag toggles them), so suppress them
+  # for this module only — every other warning class is still checked here.
+  @dialyzer :no_opaque
 
+  # The per-rule evaluation report: a pure `Ecto.Changeset` whose `changes`,
+  # `errors` and `empty_values` are **lists** (not the maps a changeset built by
+  # `Ecto.Changeset.change/2` would carry), so a fact tested by several conditions
+  # keeps every decisive condition. `data` holds the computed fact values.
+  @type report_changeset :: %Ecto.Changeset{
+          valid?: boolean(),
+          changes: [any()],
+          errors: [any()],
+          empty_values: [any()],
+          data: %{facts: map()}
+        }
+
+  @doc """
+  Evaluates a condition tree to a pure `Ecto.Changeset`, or (in `:result_only`
+  mode) to the boolean outcome alone.
+  """
+  @spec eval(Condition.t(), EvaluationContext.t()) :: report_changeset() | boolean()
+  def eval(node, context) do
+    if context.report == :result_only do
+      eval_bool(node, context, MapSet.new())
+    else
+      eval_node(node, context, MapSet.new())
+    end
+  end
+
+  @spec eval_node(Condition.t(), EvaluationContext.t(), MapSet.t()) :: report_changeset()
   defp eval_node(%Condition{kind: :leaf} = node, context, _seen), do: leaf(node, context)
 
   defp eval_node(%Condition{kind: :not, child: child}, context, seen),
@@ -69,10 +98,101 @@ defmodule Verdict.Evaluation do
 
       :error ->
         if context.allow_undefined_conditions do
-          build(%{facts: %{}}, [], [{:condition, {"undefined condition: #{ref}", [ref: ref]}}])
+          build(
+            %{facts: %{}},
+            [],
+            [{:condition, {"undefined condition: #{ref}", [ref: ref]}}],
+            [],
+            false
+          )
         else
           raise ArgumentError, "No condition #{ref} exists"
         end
+    end
+  end
+
+  # --- result_only (boolean) path --------------------------------------------
+  #
+  # A parallel, report-free evaluation that returns only each node's boolean
+  # outcome. No changesets, fact maps, explanations or `empty_values` are built.
+  # Short-circuiting and `strict` mirror the changeset path.
+
+  @spec eval_bool(Condition.t(), EvaluationContext.t(), MapSet.t()) :: boolean()
+  defp eval_bool(%Condition{kind: :leaf} = node, context, _seen), do: leaf_bool(node, context)
+
+  defp eval_bool(%Condition{kind: :not, child: child}, context, seen),
+    do: not eval_bool(child, context, seen)
+
+  defp eval_bool(%Condition{kind: :all, children: children}, context, seen),
+    do: combinator_bool(:all, children, context, seen)
+
+  defp eval_bool(%Condition{kind: :any, children: children}, context, seen),
+    do: combinator_bool(:any, children, context, seen)
+
+  defp eval_bool(%Condition{kind: :ref, ref: ref}, context, seen) do
+    case Map.fetch(context.conditions, ref) do
+      {:ok, condition} ->
+        if ref in seen do
+          raise ArgumentError, "circular condition reference detected: #{inspect(ref)}"
+        else
+          eval_bool(condition, context, MapSet.put(seen, ref))
+        end
+
+      :error ->
+        if context.allow_undefined_conditions do
+          false
+        else
+          raise ArgumentError, "No condition #{ref} exists"
+        end
+    end
+  end
+
+  defp leaf_bool(
+         %Condition{
+           fact: fact,
+           operator: operator,
+           value: value,
+           params: params,
+           path: path,
+           path_ast: path_ast
+         },
+         context
+       ) do
+    fact_value = Almanac.fact_value(context.almanac, fact, params || %{})
+    actual = if path, do: resolve_path!(fact_value, path, path_ast, context), else: fact_value
+    resolved_value = resolve_value(value, context)
+    operator_bool(context, operator, params).(actual, resolved_value)
+  end
+
+  defp combinator_bool(kind, children, context, seen) do
+    ordered = order_children(children, context)
+
+    if context.strict do
+      results = Enum.map(ordered, &eval_bool(&1, context, seen))
+      if kind == :all, do: Enum.all?(results), else: Enum.any?(results)
+    else
+      take_until_decided_bool(kind, ordered, context, seen)
+    end
+  end
+
+  # `all` decides on its first failing child; `any` on its first passing child.
+  # Vacuous bases: an empty `all` is true, an empty `any` is false.
+  defp take_until_decided_bool(:all, [], _context, _seen), do: true
+  defp take_until_decided_bool(:any, [], _context, _seen), do: false
+
+  defp take_until_decided_bool(:any, [child | rest], context, seen) do
+    if eval_bool(child, context, seen) do
+      true
+    else
+      take_until_decided_bool(:any, rest, context, seen)
+    end
+  end
+
+  defp take_until_decided_bool(:all, [child | rest], context, seen) do
+    if eval_bool(child, context, seen) do
+      take_until_decided_bool(:all, rest, context, seen)
+    else
+      false
     end
   end
 
@@ -93,7 +213,7 @@ defmodule Verdict.Evaluation do
     fact_value = Almanac.fact_value(context.almanac, fact, params || %{})
     actual = if path, do: resolve_path!(fact_value, path, path_ast, context), else: fact_value
     resolved_value = resolve_value(value, context)
-    {passed?, explanation} = operator_fn(context, operator, params).(actual, resolved_value)
+    {passed?, explanation} = leaf_operator(context, operator, params).(actual, resolved_value)
     data = %{facts: %{field => fact_value}}
 
     Log.debug(context.log, fn ->
@@ -102,11 +222,22 @@ defmodule Verdict.Evaluation do
     end)
 
     if passed? do
-      build(data, [{field, leaf_info(actual, operator, resolved_value)}], [])
+      changes =
+        if context.report == :full,
+          do: [{field, leaf_info(actual, operator, resolved_value)}],
+          else: []
+
+      build(data, changes, [], [], true)
     else
-      build(data, [], [
-        {field, {explanation, [operator: operator, value: resolved_value, actual: actual]}}
-      ])
+      build(
+        data,
+        [],
+        [
+          {field, {explanation, [operator: operator, value: resolved_value, actual: actual]}}
+        ],
+        [],
+        false
+      )
     end
   end
 
@@ -137,13 +268,7 @@ defmodule Verdict.Evaluation do
   # --- combinators ----------------------------------------------------------
 
   defp combinator(kind, children, context, seen) do
-    ordered =
-      children
-      |> Enum.group_by(fn child -> effective_priority(child, context) end)
-      |> by_priority_desc()
-      |> Enum.map(&elem(&1, 1))
-      |> List.flatten()
-
+    ordered = order_children(children, context)
     {evaluated, skipped} = take_until_decided(kind, ordered, context, seen, [])
 
     outcome =
@@ -163,7 +288,12 @@ defmodule Verdict.Evaluation do
       end)
     end
 
-    changes = Enum.map(evaluated, fn cs -> cs.changes end) |> List.flatten()
+    changes =
+      if context.report == :full do
+        Enum.map(evaluated, fn cs -> cs.changes end) |> List.flatten()
+      else
+        []
+      end
 
     errors =
       if outcome, do: [], else: Enum.map(evaluated, fn cs -> cs.errors end) |> List.flatten()
@@ -171,7 +301,7 @@ defmodule Verdict.Evaluation do
     facts = merge_maps(Enum.map(evaluated, fn cs -> cs.data[:facts] end))
     empty_values = Enum.map(evaluated, fn cs -> cs.empty_values end) |> List.flatten()
 
-    build(%{facts: facts}, changes, errors, empty_values ++ skipped)
+    build(%{facts: facts}, changes, errors, empty_values ++ skipped, outcome)
   end
 
   defp take_until_decided(_kind, [], _context, _seen, acc), do: {acc, []}
@@ -200,13 +330,13 @@ defmodule Verdict.Evaluation do
       # child true -> not is false: the child's passing leaves are why it failed
       errors = Enum.map(cs.changes, fn {field, info} -> change_to_not_error(field, info) end)
 
-      build(cs.data, [], errors, cs.empty_values)
+      build(cs.data, [], errors, cs.empty_values, false)
     else
       # child false -> not is true: the child's failing leaves are why it passed
       changes =
         Enum.map(cs.errors, fn {field, {_msg, meta}} -> error_to_not_change(field, meta) end)
 
-      build(cs.data, changes, [], cs.empty_values)
+      build(cs.data, changes, [], cs.empty_values, true)
     end
   end
 
@@ -242,6 +372,15 @@ defmodule Verdict.Evaluation do
 
   defp by_priority_desc(grouped), do: Enum.sort_by(grouped, fn {priority, _} -> -priority end)
 
+  # Children ordered by effective priority (descending); ties keep declaration order.
+  defp order_children(children, context) do
+    children
+    |> Enum.group_by(fn child -> effective_priority(child, context) end)
+    |> by_priority_desc()
+    |> Enum.map(&elem(&1, 1))
+    |> List.flatten()
+  end
+
   # A node's effective evaluation priority. An explicit condition priority wins;
   # a leaf without one takes its fact's registered priority; anything else is 1.
   defp effective_priority(%Condition{kind: :leaf, fact: fact, priority: priority}, context) do
@@ -257,6 +396,22 @@ defmodule Verdict.Evaluation do
   # operator so a 3-arity custom operator can be parameterized by the condition.
   defp operator_fn(context, operator, params),
     do: Operators.resolve(context.operators, context.decorators, operator, params || %{})
+
+  # The operator for a changeset-path leaf: `:full` builds its explanation,
+  # `:failures_only` builds one only on failure (a pass yields `{true, nil}`).
+  defp leaf_operator(context, operator, params) do
+    case context.report do
+      :full ->
+        operator_fn(context, operator, params)
+
+      :failures_only ->
+        Operators.lazy(context.operators, context.decorators, operator, params || %{})
+    end
+  end
+
+  # The pure-boolean operator for a `:result_only` leaf (no explanation built).
+  defp operator_bool(context, operator, params),
+    do: Operators.bool(context.operators, context.decorators, operator, params || %{})
 
   defp collect_leaves(children) do
     Enum.flat_map(children, &leaves_of/1)
@@ -276,13 +431,13 @@ defmodule Verdict.Evaluation do
     if pp, do: Map.put(base, :params, pp), else: base
   end
 
-  defp build(data, changes, errors, empty_values \\ []) do
+  defp build(data, changes, errors, empty_values, valid?) do
     %Ecto.Changeset{
       data: data,
       changes: changes,
       errors: errors,
       empty_values: empty_values,
-      valid?: errors == [],
+      valid?: valid?,
       types: nil,
       action: nil
     }
@@ -315,11 +470,12 @@ defmodule Verdict.Evaluation do
       :invalid ->
         nil
 
+      # `compiled_ast/2` only ever yields an AST built by `JSONPath.build/1`, and
+      # `JSONPath.values/2` run against a compiled AST (not a raw query string)
+      # always returns `{:ok, _}`, so this match cannot fail.
       ast ->
-        case JSONPath.values(fact_value, ast) do
-          {:ok, matches} -> normalize_path(matches, path)
-          {:error, _} -> nil
-        end
+        {:ok, matches} = JSONPath.values(fact_value, ast)
+        normalize_path(matches, path)
     end
   end
 

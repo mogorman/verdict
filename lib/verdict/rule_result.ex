@@ -36,7 +36,8 @@ defmodule Verdict.RuleResult do
   The leaf values (`value`, `actual`, `factResult`) are the raw Elixir terms the
   engine computed; the map is JSON-encodable as long as the facts produce
   JSON-compatible data (string-keyed maps, lists, numbers, strings, booleans,
-  `nil`).
+  `nil`). When the run used `report: :result_only`, no report is built and
+  `conditions` is `nil`.
   """
   @spec to_map(t()) :: map()
   def to_map(%__MODULE__{} = rule_result) do
@@ -48,6 +49,10 @@ defmodule Verdict.RuleResult do
       "conditions" => conditions_map(rule_result.changeset)
     }
   end
+
+  # A `:result_only` run builds no report, so `changeset` is `nil` and the
+  # `conditions` key is `nil` too.
+  defp conditions_map(nil), do: nil
 
   defp conditions_map(changeset) do
     facts = (changeset.data || %{})[:facts] || %{}

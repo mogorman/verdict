@@ -81,4 +81,38 @@ defmodule Verdict.StoreEtsTest do
     EStore.add_fact(store, fact)
     assert :ets.lookup(:"#{table}.facts", "age") == [{"age", fact}]
   end
+
+  test "create/1 raises when the store name is already taken" do
+    name = :"dup_ets_#{System.unique_integer([:positive])}"
+    pid = EStore.create(name: name)
+    assert is_pid(pid)
+
+    assert_raise RuntimeError, ~r/failed to start store/, fn -> EStore.create(name: name) end
+
+    GenServer.stop(pid)
+  end
+
+  test "removing a rule by name keeps the other rules" do
+    store = EStore.create([])
+
+    {:ok, _, one} =
+      Engine.add_rule(Engine.new(), %{
+        name: "one",
+        event: %{type: "e"},
+        conditions: %{all: [%{fact: "a", operator: "equal", value: 1}]}
+      })
+
+    {:ok, _, two} =
+      Engine.add_rule(Engine.new(), %{
+        name: "two",
+        event: %{type: "e"},
+        conditions: %{all: [%{fact: "a", operator: "equal", value: 1}]}
+      })
+
+    {_store, _} = EStore.add_rule(store, one)
+    {_store, _} = EStore.add_rule(store, two)
+    {_store, true} = EStore.remove_rule(store, "one")
+    {_store, [remaining]} = EStore.rules(store)
+    assert remaining.name == "two"
+  end
 end

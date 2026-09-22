@@ -46,4 +46,12 @@ defmodule Verdict.FactTest do
   test "calculate/3 calls a (params) function" do
     assert Fact.calculate(Fact.new("age", fn p -> p["n"] end), %{"n" => 3}, Almanac.new(%{})) == 3
   end
+
+  test "new/3 defaults a nil priority to 1" do
+    assert Fact.new("age", 1, priority: nil).priority == 1
+  end
+
+  test "new/3 falls back to 1 for a non-numeric priority" do
+    assert Fact.new("age", 1, priority: 1.5).priority == 1
+  end
 end

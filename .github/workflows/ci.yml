@@ -39,6 +39,45 @@ jobs:
       - name: Run tests
         run: mix test
 
+  dialyzer:
+    name: Dialyzer (OTP ${{ matrix.otp }}, Elixir ${{ matrix.elixir }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        otp: ["28"]
+        elixir: ["1.20.4"]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Erlang/Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ matrix.otp }}
+          elixir-version: ${{ matrix.elixir }}
+
+      # The PLTs live in priv/plts/ (see mix.exs). Caching them skips the ~1-minute
+      # build on repeat runs; the key includes the dependency lockfile, so any deps
+      # change forces a fresh PLT.
+      - name: Cache Dialyzer PLTs
+        uses: actions/cache@v4
+        with:
+          path: priv/plts
+          key: dialyzer-${{ runner.os }}-otp-${{ matrix.otp }}-elixir-${{ matrix.elixir }}-${{ hashFiles('mix.lock') }}
+          restore-keys: |
+            dialyzer-${{ runner.os }}-otp-${{ matrix.otp }}-elixir-${{ matrix.elixir }}-
+
+      - name: Fetch dependencies
+        run: mix deps.get
+
+      - name: Build / refresh the PLT
+        run: mix dialyzer --plt
+
+      # A hard gate: exits non-zero (and annotates the diff) on any warning.
+      - name: Analyze (fails on any warning)
+        run: mix dialyzer --format github
+
   coverage:
     name: Coverage (Coveralls)
     runs-on: ubuntu-latest

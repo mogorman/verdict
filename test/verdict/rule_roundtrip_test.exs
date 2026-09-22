@@ -2,7 +2,7 @@ defmodule Verdict.RuleRoundTripTest do
   @moduledoc false
   use ExUnit.Case, async: true
 
-  alias Verdict.{Engine, Event, Rule}
+  alias Verdict.{Condition, Engine, Event, Rule}
 
   defp to_rule(json) do
     %Rule{}
@@ -106,6 +106,25 @@ defmodule Verdict.RuleRoundTripTest do
       map = Rule.to_map(rule)
       refute Map.has_key?(map, "priority")
       refute Map.has_key?(map, "extra")
+    end
+
+    test "omits a nil priority" do
+      rule = %Rule{
+        name: "r",
+        priority: nil,
+        event: %Event{type: "e"},
+        conditions: %Condition{kind: :ref, ref: "someRef"}
+      }
+
+      refute Map.has_key?(Rule.to_map(rule), "priority")
+    end
+  end
+
+  describe "Rule.changeset/2" do
+    test "rejects a condition tree with an unknown kind" do
+      cs = Rule.changeset(%Rule{}, %{event: %{type: "e"}, conditions: %Condition{kind: :bogus}})
+      refute cs.valid?
+      assert Enum.any?(cs.errors, fn {field, _} -> field == :conditions end)
     end
   end
 

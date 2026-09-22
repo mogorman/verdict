@@ -16,6 +16,19 @@ defmodule Verdict.EvaluationTest do
 
   defp field_in?(changes, field), do: Enum.any?(changes, fn {f, _} -> f == field end)
 
+  # Runs a single rule and returns its boolean outcome (used for `:result_only`,
+  # where no changeset report is built).
+  defp run_bool(conditions, facts, run_opts \\ []) do
+    engine = Engine.new() |> TestSupport.add_rule(%{conditions: conditions, event: %{type: "e"}})
+    %RunResult{results: [rr]} = Engine.run(engine, facts, run_opts)
+    rr.valid?
+  end
+
+  defp changeset_of(engine, facts) do
+    %RunResult{results: [rr]} = Engine.run(engine, facts)
+    rr.changeset
+  end
+
   describe "leaf" do
     test "a passing leaf is a change" do
       cs = run_cs(%{all: [%{fact: "age", operator: "lessThan", value: 50}]}, %{age: 10})
@@ -235,6 +248,153 @@ defmodule Verdict.EvaluationTest do
 
       %RunResult{events: [], failure_events: [%_struct{type: "e"}]} =
         Engine.run(engine, %{age: 10})
+    end
+  end
+
+  describe "report: :result_only (boolean evaluation path)" do
+    test "not / any / strict-all reduce to booleans" do
+      # not: 60 < 50 is false, so not(false) is true
+      assert run_bool(%{not: %{fact: "age", operator: "lessThan", value: 50}}, %{age: 60},
+               report: :result_only
+             )
+
+      # not: 30 < 50 is true, so not(true) is false
+      refute run_bool(%{not: %{fact: "age", operator: "lessThan", value: 50}}, %{age: 30},
+               report: :result_only
+             )
+
+      # any: every child fails -> false (drives the :any recursion down to the empty base)
+      refute run_bool(
+               %{
+                 any: [
+                   %{fact: "age", operator: "equal", value: 1},
+                   %{fact: "age", operator: "equal", value: 2}
+                 ]
+               },
+               %{age: 30},
+               report: :result_only
+             )
+
+      # any: the second child passes -> true (short-circuits once decided)
+      assert run_bool(
+               %{
+                 any: [
+                   %{fact: "age", operator: "equal", value: 1},
+                   %{fact: "age", operator: "equal", value: 30}
+                 ]
+               },
+               %{age: 30},
+               report: :result_only
+             )
+
+      # all with strict: true evaluates every child (the strict combinator branch)
+      refute run_bool(
+               %{
+                 all: [
+                   %{fact: "age", operator: "lessThan", value: 100},
+                   %{fact: "age", operator: "lessThan", value: 1}
+                 ]
+               },
+               %{age: 30},
+               report: :result_only,
+               strict: true
+             )
+    end
+
+    test "a valid condition reference resolves and evaluates" do
+      {:ok, engine} =
+        Engine.new(report: :result_only)
+        |> Engine.set_condition("young", %{all: [%{fact: "age", operator: "lessThan", value: 18}]})
+
+      engine =
+        TestSupport.add_rule(engine, %{conditions: %{condition: "young"}, event: %{type: "e"}})
+
+      %RunResult{results: [rr]} = Engine.run(engine, %{age: 10})
+      assert rr.valid?
+    end
+
+    test "a circular condition reference raises" do
+      {:ok, e1} = Engine.new(report: :result_only) |> Engine.set_condition("a", %{condition: "b"})
+      {:ok, e2} = Engine.set_condition(e1, "b", %{condition: "a"})
+
+      engine = TestSupport.add_rule(e2, %{conditions: %{condition: "a"}, event: %{type: "e"}})
+
+      assert_raise ArgumentError, ~r/circular condition reference/, fn ->
+        Engine.run(engine, %{})
+      end
+    end
+
+    test "an undefined condition raises when not allowed" do
+      engine =
+        Engine.new(report: :result_only)
+        |> TestSupport.add_rule(%{conditions: %{condition: "missing"}, event: %{type: "e"}})
+
+      assert_raise ArgumentError, ~r/No condition missing exists/, fn ->
+        Engine.run(engine, %{})
+      end
+    end
+
+    test "an undefined condition is false when allowed" do
+      engine =
+        Engine.new(report: :result_only, allow_undefined_conditions: true)
+        |> TestSupport.add_rule(%{conditions: %{condition: "missing"}, event: %{type: "e"}})
+
+      %RunResult{results: [rr]} = Engine.run(engine, %{})
+      refute rr.valid?
+    end
+  end
+
+  describe "short-circuited subtrees (leaves_of)" do
+    test "a skipped not-node and a skipped reference are both collected" do
+      {:ok, engine} =
+        Engine.new()
+        |> Engine.set_condition("named", %{all: [%{fact: "z", operator: "equal", value: 1}]})
+
+      conditions = %{
+        any: [
+          %{fact: "member", operator: "equal", value: true, priority: 10},
+          %{not: %{fact: "a", operator: "equal", value: 1}, priority: 1},
+          %{condition: "named", priority: 1}
+        ]
+      }
+
+      engine = TestSupport.add_rule(engine, %{conditions: conditions, event: %{type: "e"}})
+      cs = changeset_of(engine, %{member: true, a: 5, z: 1})
+      assert cs.valid?
+
+      # member (highest priority) passes, so the not-node and the reference are
+      # never evaluated; only the not-node's inner leaf is recorded as a descriptor.
+      skipped_facts = cs.empty_values |> Enum.map(& &1.fact) |> Enum.uniq()
+      assert "a" in skipped_facts
+    end
+  end
+
+  describe "path resolution of invalid paths" do
+    test "a leaf whose precompiled path is invalid resolves to nil" do
+      engine =
+        Engine.new()
+        |> Engine.add_fact("obj", %{x: 1})
+        |> TestSupport.add_rule(%{
+          conditions: %{all: [%{fact: "obj", operator: "equal", value: 1, path: "$invalid["}]},
+          event: %{type: "e"}
+        })
+
+      refute changeset_of(engine, %{}).valid?
+    end
+
+    test "a fact-reference value whose path is invalid resolves to nil" do
+      engine =
+        Engine.new()
+        |> Engine.add_fact("a", 1)
+        |> Engine.add_fact("b", %{x: 1})
+        |> TestSupport.add_rule(%{
+          conditions: %{
+            all: [%{fact: "a", operator: "equal", value: %{fact: "b", path: "$invalid["}}]
+          },
+          event: %{type: "e"}
+        })
+
+      refute changeset_of(engine, %{}).valid?
     end
   end
 end

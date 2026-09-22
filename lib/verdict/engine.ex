@@ -39,6 +39,23 @@ defmodule Verdict.Engine do
 
     * `:serial` (default) – priority buckets run one at a time.
     * `:parallel` – items within a priority bucket run concurrently.
+
+  ## Report modes
+
+  The `:report` option (on `new/1` or per run via `run/3`) selects how much of
+  the per-condition report is built. The rule outcome, `events` and
+  `failure_events` are the same in every mode; only the detail carried on each
+  `RuleResult.changeset` differs:
+
+    * `:full` (default) – the complete report: the passing and failing
+      conditions (with explanations), the computed facts, and any leaves
+      short-circuited before they were reached.
+    * `:result_only` – just each rule's boolean outcome. No conditions, facts
+      or explanations are built (each `RuleResult.changeset` is `nil`), so this
+      is the fastest mode. Use it when you only need to know which rules fired.
+    * `:failures_only` – the failing conditions (with explanations) only; the
+      passing conditions are dropped. Faster than `:full` in proportion to how
+      many conditions pass.
   """
   alias Verdict.{Evaluator, Fact, Log, Rule, Store.Pure, Types}
   alias Verdict.Store.Ets, as: EtsStore
@@ -75,12 +92,20 @@ defmodule Verdict.Engine do
    * `:schedule` – a `t:schedule/0`: `:serial` (default) or `:parallel`.
   * `:allow_undefined_facts` – default `false`. When `true`, an undefined
     fact evaluates to `nil` instead of raising.
-   * `:strict` – default `false`. When `false` (the default) a rule's
-     `all`/`any` conditions **short-circuit** (skipped leaves land in
-     `data.empty_values`); when `true` every condition is evaluated.
-   * `:allow_undefined_conditions` – default `false`. When `true`, a
-     condition reference that was never registered evaluates to false instead
-     of raising.
+    * `:strict` – default `false`. When `false` (the default) a rule's
+      `all`/`any` conditions **short-circuit** (skipped leaves land in
+      `data.empty_values`); when `true` every condition is evaluated.
+    * `:report` – default `:full`. How much of the per-condition report to
+      build: `:full` builds the complete report (passing and failing conditions
+      with explanations, the computed facts, and short-circuited leaves);
+      `:result_only` returns just each rule's boolean outcome, with no
+      conditions, facts or explanations (the fastest); `:failures_only` keeps
+      only the failing conditions (with explanations) and drops the passing
+      ones, so it is faster than `:full` in proportion to how many conditions
+      pass. Overridable per run via `run/3`.
+    * `:allow_undefined_conditions` – default `false`. When `true`, a
+      condition reference that was never registered evaluates to false instead
+      of raising.
     * `:path_resolver` – a `(value, path) -> term()` used to resolve a
       condition's `path`. When omitted, the engine's default (JSONPath)
       resolver is used.
@@ -104,6 +129,7 @@ defmodule Verdict.Engine do
         allow_undefined_conditions: Keyword.get(opts, :allow_undefined_conditions, false),
         path_resolver: Keyword.get(opts, :path_resolver),
         strict: Keyword.get(opts, :strict, false),
+        report: validate_report!(Keyword.get(opts, :report, :full)),
         replace_facts_in_event_params: Keyword.get(opts, :replace_facts_in_event_params, false)
       ] ++ log_option(opts)
 
@@ -121,6 +147,19 @@ defmodule Verdict.Engine do
     else
       []
     end
+  end
+
+  @valid_reports [:full, :result_only, :failures_only]
+
+  # Raises `ArgumentError` when `report` is not a recognized report mode, else
+  # returns it unchanged (validate-then-bind).
+  defp validate_report!(report) do
+    unless report in @valid_reports do
+      raise ArgumentError,
+            "invalid report #{inspect(report)}; expected :full, :result_only or :failures_only"
+    end
+
+    report
   end
 
   # A `{module, handle}` tuple wraps an already-created store. See the
@@ -347,8 +386,9 @@ defmodule Verdict.Engine do
 
   `runtime_facts` are facts available for this run only (they override
   registered facts of the same name for the duration of the run). `opts` may
-  include `:allow_undefined_facts` and `:strict` (both override the engine
-  defaults for this run).
+  override any engine option for this run — e.g. `:schedule`, `:strict`,
+  `:report`, `:allow_undefined_facts` or `:log` (a per-run value wins over the
+  engine default).
 
   Returns a `Verdict.RunResult` whose `results` is a list of
   `Verdict.RuleResult` (in priority order) and whose `events` /
@@ -372,6 +412,7 @@ defmodule Verdict.Engine do
       |> Keyword.put(:callbacks, engine.events)
       |> Keyword.put(:rule_callbacks, engine.rule_events)
 
+    validate_report!(Keyword.get(merged, :report, :full))
     Evaluator.run(rules, defs, runtime_facts, merged)
   end
 

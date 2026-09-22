@@ -354,16 +354,20 @@ mix test
 ```
 
 The project targets Elixir 1.20, which runs the compiler's native type checker by
-default. CI compiles with `--warnings-as-errors`, so type-checker warnings fail the
-build.
+default, and is additionally checked with **Dialyzer** — a stricter, BEAM-level
+checker that also validates calls against dependency types (Ecto, `json_path`).
+CI compiles with `--warnings-as-errors` and runs Dialyzer as a **hard gate**, so
+type-checker warnings fail the build. See [Dialyzer](docs/dialyzer.md) for the
+setup, the flag set, and how to suppress genuine false positives.
 
 Benchmarks (see [benchmarks](docs/benchmarks.md)), profiling
 ([profiling](docs/profiling.md)), performance ([performance](docs/performance.md)),
-and coverage (ExCoveralls):
+type-checking ([Dialyzer](docs/dialyzer.md)), and coverage (ExCoveralls):
 
 ```sh
 mix bench            # run the benchmark suites (schedule, store, fact, slowfacts, engines, matrix)
 mix bench profile    # profile Engine.run/3 to find hotspots (OTP :tprof)
+mix dialyzer         # type-check with Dialyzer (CI runs this as a hard gate)
 mix coveralls.html   # coverage report + HTML in cover/; fails if below the ratchet
 ```
 
