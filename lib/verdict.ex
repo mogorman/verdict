@@ -47,6 +47,35 @@ defmodule Verdict do
   may be a JSON string or a map of `name` to value (a value may be a function
   for a dynamic fact). The options accept any `Verdict.Engine.new/1` option.
 
+  ## Modules
+
+  The engine is split into focused modules, each with its own reference:
+
+    * [`Verdict.Engine`](Verdict.Engine) — the public API: build an engine, add
+      rules / facts / operators / named conditions, register callbacks, and run.
+    * [`Verdict`](Verdict) — the one-shot `return/3` / `return!/3` entry point
+      (this module).
+    * [`Verdict.Rule`](Verdict.Rule), [`Verdict.Event`](Verdict.Event),
+      [`Verdict.Condition`](Verdict.Condition) — the Ecto data model.
+    * [`Verdict.Fact`](Verdict.Fact) — constant or dynamic facts.
+    * [`Verdict.Operators`](Verdict.Operators) — the built-in comparison
+      operators, plus how to add custom ones and decorators.
+    * [`Verdict.Almanac`](Verdict.Almanac) — the per-run fact store / cache, with
+      the [`Verdict.Almanac.ProcessLocal`](Verdict.Almanac.ProcessLocal) and
+      [`Verdict.Almanac.Shared`](Verdict.Almanac.Shared) backends.
+    * [`Verdict.Store`](Verdict.Store) — the pluggable rule / fact store, with
+      the `:pure`, `:genserver` and `:ets` backends.
+    * [`Verdict.Evaluator`](Verdict.Evaluator) — the pure, serial or parallel
+      run loop.
+    * [`Verdict.Evaluation`](Verdict.Evaluation) — the pure condition-tree
+      evaluation and the changeset report.
+    * [`Verdict.RunResult`](Verdict.RunResult) /
+      [`Verdict.RuleResult`](Verdict.RuleResult) — the outcome of a run / a rule.
+    * [`Verdict.Log`](Verdict.Log) — optional, level-gated logging.
+    * Errors: [`Verdict.InvalidRuleError`](Verdict.InvalidRuleError),
+      [`Verdict.InvalidJSONError`](Verdict.InvalidJSONError),
+      [`Verdict.UndefinedFactError`](Verdict.UndefinedFactError).
+
   See `Verdict.Engine` for the API and the README for worked examples.
   """
 

@@ -55,8 +55,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   a callback in an *earlier* priority bucket is always visible to *later* buckets.
   A runtime fact added within the *same* bucket is read through the live shared
   almanac (best-effort, as before) — a sibling rule in the same bucket sees it only
-  if it happens to read it after the callback ran. `:serial` is unaffected. See
-  [Phase 4 — the shared almanac](docs/phase_4.md#semantics-that-differ-from-serial).
+   if it happens to read it after the callback ran. `:serial` is unaffected. See
+   the `Verdict.Almanac.Shared` moduledoc.
 
 ## [0.1.1] - 2026-09-19
 

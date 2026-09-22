@@ -6,7 +6,7 @@ defmodule Verdict.EngineCustomOperatorTest do
   alias Verdict.{Engine, RunResult, RuleResult}
   alias Verdict.TestSupport
 
-  # The worked example from docs/phase_4_5.md: a 3-arity (parameterized) custom
+  # The worked example from the `Verdict.Operators` moduledoc: a 3-arity (parameterized) custom
   # operator that reads its bounds from the condition's `params` and returns a
   # custom `{passed?, explanation}` tuple.
   defp range_op(fv, _jv, params) do

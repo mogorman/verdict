@@ -6,7 +6,13 @@ defmodule Verdict.Event do
   the rule's conditions evaluate truthy and as a *failure* when they do not.
 
   An event always has a `type` (usually a string) and an optional `params` map
-  of arbitrary data.
+  of arbitrary data. When the engine is configured with
+  `replace_facts_in_event_params: true`, a top-level `params` value that is a
+  fact reference (`%{fact: …}`, optionally with `params` / `path`) is resolved
+  to its computed value before the event is emitted or stored.
+
+  `to_map/1` serializes the event back to a JSON-compatible map (the inverse of
+  `changeset/2`); an empty `params` map is omitted.
   """
   use Ecto.Schema
   import Ecto.Changeset

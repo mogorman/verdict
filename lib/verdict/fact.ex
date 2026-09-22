@@ -3,13 +3,28 @@ defmodule Verdict.Fact do
   A registered fact.
 
   A fact is either a **constant** (any term) or **dynamic** (a function of
-  `(params, almanac)` or `(params)` that computes its value). Beyond the
-  definition a fact carries two options:
+  `(params, almanac)` — or `(params)` — that computes its value). `params` are
+  supplied by the condition that references the fact (its `params` map); a
+  dynamic fact can also read *other* facts through the `almanac`, which is how
+  facts depend on one another:
+
+      engine =
+        Verdict.Engine.new()
+        |> Verdict.Engine.add_fact("account-info", fn _p, _a -> %{company: "microsoft"} end)
+        |> Verdict.Engine.add_fact("company", fn _p, almanac ->
+          Verdict.Almanac.fact_value(almanac, "account-info").company
+        end)
+
+  Facts are computed lazily and **cached per run**, so a fact (and any facts it
+  reads) is computed only once no matter how many conditions or facts reference
+  it. Beyond the definition a fact carries two options:
 
     * `cache` (default `true`) – when `false`, a dynamic fact is recomputed on
       every reference instead of being cached for the run.
-    * `priority` (default `1`) – used to order a rule's conditions by fact
-      priority during evaluation.
+    * `priority` (default `1`) – when a rule's `all`/`any` leaves carry no
+      explicit condition `priority`, they are evaluated in fact-priority order
+      (highest first), so a high-priority fact that fails an `all` (or passes an
+      `any`) can decide the rule before the lower-priority facts are touched.
   """
 
   @type calc :: (map(), Verdict.Almanac.t() -> term()) | (map() -> term())

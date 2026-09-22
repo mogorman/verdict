@@ -7,7 +7,14 @@ defmodule Verdict.Rule do
   struct; the resulting struct is stored by a `Verdict.Store`.
 
   Rules carry a `priority` (default `1`) that orders their evaluation relative
-  to other rules, and a `name` used to identify them in results.
+  to other rules, and a `name` used to identify them in results. A rule (or any
+  condition inside it) may also carry arbitrary data in an `extra` map.
+
+  A rule loads from JSON via `changeset/2` and serializes back out with
+  `to_map/1` (and an engine's whole set with `Verdict.Engine.rules_as_map/1`):
+  for well-formed rules `to_map/1` is the exact inverse of the cast, so
+  `decode → add_rule → to_map` returns the payload unchanged. Facts and operators
+  hold functions and so are not serializable — only rules round-trip.
   """
   use Ecto.Schema
   import Ecto.Changeset

@@ -20,14 +20,62 @@ defmodule Verdict.Operators do
   | `contains`             | fact (a list) includes value                   |
   | `doesNotContain`       | fact (a list) does not include value           |
 
-  Custom operators (registered via `Verdict.Engine.add_operator/3`) extend this
-  set at runtime. A custom operator is a **2- or 3-arity** function — the 3rd
-  argument is the condition's `params` — that returns a boolean, or a
-  `{passed?, explanation}` tuple to supply its own explanation. When a plain
-  custom operator returns a tuple, that explanation is used verbatim; when it
-  returns a boolean (or is used inside a `decorator:…` composite), a generic
-  explanation is generated. Operator decorators
-  (`Verdict.Engine.add_operator_decorator/3`) wrap an operator.
+  ## Custom operators
+
+  Register a `(fact_value, json_value) -> boolean` function — or a 3-arity
+  `(fact_value, json_value, params)` one — under a name with
+  `Verdict.Engine.add_operator/3` (removed with `remove_operator/3`). A custom
+  operator shadows a built-in of the same name while the engine is in use, and
+  its existence is checked at *evaluation* time, so the name need not exist when
+  a rule is added.
+
+  An operator may return a **boolean**, or a `{passed?, explanation}` tuple whose
+  text is used verbatim in the failure report; a 3-arity operator is
+  **parameterized** by the condition's `params` (the reference engine's operator
+  parameters). Both behaviors compose:
+
+  ```elixir
+  # a 3-arity, self-explaining, parameterized operator: bounds come from `params`
+  in_range = fn fact_value, _json_value, params ->
+    min = params[:min]
+    max = params[:max]
+    ok = is_number(fact_value) and fact_value >= min and fact_value <= max
+    {ok, "\#{fact_value} \#{if ok, do: "is within", else: "is outside"} [\#{min}..\#{max}]"}
+  end
+
+  engine = Verdict.Engine.new() |> Verdict.Engine.add_operator("inRange", in_range)
+
+  {:ok, engine, _} =
+    Verdict.Engine.add_rule(engine, %{
+      event: %{type: "in-band"},
+      conditions: %{all: [%{fact: "score", operator: "inRange", value: nil, params: %{min: 5, max: 10}}]}
+    })
+  ```
+
+  ## Decorators and composites
+
+  A decorator receives `(fact_value, json_value, next)` — where `next` is the
+  wrapped operator — and returns a boolean. Six are built in:
+
+  | Decorator      | Meaning                                             |
+  | -------------- | --------------------------------------------------- |
+  | `someFact`     | the fact is a list and *some* element satisfies `next`   |
+  | `someValue`    | the value is a list and *some* element satisfies `next`  |
+  | `everyFact`    | the fact is a list and *every* element satisfies `next`  |
+  | `everyValue`   | the value is a list and *every* element satisfies `next` |
+  | `swap`         | evaluate `next` with the fact and value swapped           |
+  | `not`          | negate the result of `next`                            |
+
+  A decorator (or several) combines with a base operator into a **composite**
+  name using `:` — the leftmost decorator is applied outermost. Register a
+  custom decorator the same way, with
+  `Verdict.Engine.add_operator_decorator/3` (removed with
+  `remove_operator_decorator/3`):
+
+  ```elixir
+  # at least one element of the list fact is >= 80
+  %{all: [%{fact: "scores", operator: "someFact:greaterThanInclusive", value: 80}]}
+  ```
   """
 
   @type value :: term()

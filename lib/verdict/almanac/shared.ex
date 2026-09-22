@@ -9,10 +9,23 @@ defmodule Verdict.Almanac.Shared do
   the server. That is what keeps a fact that depends on other facts from deadlocking
   (the worker calls back into the server for its dependencies, never the reverse).
 
-  Because the cache is a best-effort check-then-put across processes, a fact
-  referenced by several rules in the *same* priority bucket may be computed more
-  than once; the value is consistent for pure facts. The `:serial` engine
-  (`Verdict.Almanac.ProcessLocal`) still guarantees single computation.
+   Because the cache is a best-effort check-then-put across processes, a fact
+   referenced by several rules in the *same* priority bucket may be computed more
+   than once; the value is consistent for pure facts. The `:serial` engine
+   (`Verdict.Almanac.ProcessLocal`) still guarantees single computation.
+
+  ## Semantics that differ from `:serial`
+
+  * **Stop granularity** — `Verdict.Almanac.stop/1` halts before the next
+    *bucket*, not the next rule; rules already running in the current bucket
+    still complete (matching the JS reference's per-bucket `Promise.all`).
+  * **Runtime-fact visibility is per bucket** — before a bucket starts, the
+    `Verdict.Evaluator` snapshots the current *constant* facts and hands that
+    snapshot to the bucket's workers, so a constant fact reads locally instead of
+    round-tripping through the server per leaf. A runtime fact added by a callback
+    in an *earlier* bucket is always visible to *later* buckets; one added within
+    the *same* bucket is read through the live server — visible to a sibling only
+    if that sibling reads it after the callback ran (best-effort).
   """
   use GenServer
 

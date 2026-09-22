@@ -56,6 +56,35 @@ defmodule Verdict.Engine do
     * `:failures_only` – the failing conditions (with explanations) only; the
       passing conditions are dropped. Faster than `:full` in proportion to how
       many conditions pass.
+
+  ## Event callbacks
+
+  `on/3` registers a callback for the event `"success"`, `"failure"`, or a
+  specific event `type`; `on_rule/4` registers one for a single rule, keyed by
+  its `id`. A callback is `fn first, almanac, rule_result`: for `"success"` /
+  `"failure"` `first` is the rule's full `event`; for a specific type (fired only
+  when that rule succeeds) it is the event's `params`. Callbacks run between
+  rules, after each rule is evaluated — a successful rule fires `"success"` and
+  then its own event type; a failed rule fires only `"failure"`.
+
+  ## Run control
+
+  A callback receives the per-run `Verdict.Almanac` and can steer the run:
+
+    * `Verdict.Almanac.add_runtime_fact/3` — register a constant fact that later
+      rules (and facts) in the same run read, so one rule's outcome can seed the
+      next;
+    * `Verdict.Almanac.stop/1` — halt the run: no further rules are evaluated and
+      no further events are emitted (before the next rule in `:serial`).
+
+  An error raised inside a fact's definition is not swallowed — it propagates
+  out of `run/3`.
+
+  ## Sharing a pre-started store
+
+  Start a backend yourself (e.g. under a supervisor) and wrap it with
+  `new(store: {module, handle})`; the engine reuses it without re-creating it —
+  see `Verdict.Store` for the backends and how to write your own.
   """
   alias Verdict.{Evaluator, Fact, Log, Rule, Store.Pure, Types}
   alias Verdict.Store.Ets, as: EtsStore
@@ -89,9 +118,12 @@ defmodule Verdict.Engine do
      `Verdict.Store` backend (see its moduledoc for how to implement one).
    * `:store_options` – a keyword list of backend-specific options passed to the
      store's `create/1` (e.g. a GenServer name). Ignored by `:pure`.
-   * `:schedule` – a `t:schedule/0`: `:serial` (default) or `:parallel`.
-  * `:allow_undefined_facts` – default `false`. When `true`, an undefined
-    fact evaluates to `nil` instead of raising.
+    * `:schedule` – a `t:schedule/0`: `:serial` (default) or `:parallel`.
+    * `:parallel_concurrency` – default `System.schedulers_online()`. The cap on
+      how many rules within a `:parallel` bucket run at once (ignored by
+      `:serial`).
+   * `:allow_undefined_facts` – default `false`. When `true`, an undefined
+     fact evaluates to `nil` instead of raising.
     * `:strict` – default `false`. When `false` (the default) a rule's
       `all`/`any` conditions **short-circuit** (skipped leaves land in
       `data.empty_values`); when `true` every condition is evaluated.
@@ -106,10 +138,14 @@ defmodule Verdict.Engine do
     * `:allow_undefined_conditions` – default `false`. When `true`, a
       condition reference that was never registered evaluates to false instead
       of raising.
-    * `:path_resolver` – a `(value, path) -> term()` used to resolve a
-      condition's `path`. When omitted, the engine's default (JSONPath)
-      resolver is used.
-    * `:log` – a logging threshold: `nil` (default, off), `:debug`, `:info`,
+     * `:path_resolver` – a `(value, path) -> term()` used to resolve a
+       condition's `path`. When omitted, the engine's default (JSONPath)
+       resolver is used.
+     * `:replace_facts_in_event_params` – default `false`. When `true`, a
+       top-level event `params` value that is a fact reference (`%{fact: …}`,
+       optionally with `params` / `path`) is resolved to its computed value
+       before the event is emitted.
+     * `:log` – a logging threshold: `nil` (default, off), `:debug`, `:info`,
       `:warning`, or `:error`. When set, each step of a run is emitted via
       `Logger`. Falls back to the application config
       (`config :verdict, :log, level`) when not set, and may be

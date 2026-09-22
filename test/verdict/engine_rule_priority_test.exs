@@ -36,6 +36,6 @@ defmodule Verdict.EngineRulePriorityTest do
 
   # The reference test also asserts that all events from a higher-priority rule are
   # fully resolved before a lower-priority rule runs. That requires per-event success
-  # callbacks (Phase 2); the serial executor already runs one rule to completion before
+  # callbacks; the serial executor already runs one rule to completion before
   # the next, so the ordering guarantee holds.
 end

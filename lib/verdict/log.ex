@@ -16,14 +16,32 @@ defmodule Verdict.Log do
   next tier").
 
   The levels are cumulative — a run at `:info` emits `:info`, `:warning` and
-  `:error` messages but not `:debug`. See `docs/phase_6.md` for which engine
-  step emits at which level.
+  `:error` messages but not `:debug`.
+
+  ## Which step emits at which level
+
+  | Step                                      | Level     |
+  | ----------------------------------------- | --------- |
+  | run started (rule count, schedule)        | `debug`   |
+  | a named condition reference is resolved   | `debug`   |
+  | a leaf condition is evaluated             | `debug`   |
+  | an `all` / `any` combinator's outcome     | `debug`   |
+  | a `not` node's outcome                    | `debug`   |
+  | a callback fires (event type, rule)       | `debug`   |
+  | a rule fired / did not fire               | `info`    |
+  | run finished (succeeded / failed counts)  | `info`    |
+  | short-circuit skipped `N` condition(s)    | `warning` |
+  | the run was stopped                       | `warning` |
+
+  There is no `:error` step today — evaluation errors propagate as exceptions
+  rather than being logged — but `:error` is a valid threshold so a host can cap
+  the output to the most severe messages.
 
   Each message is emitted through `Logger` using a zero-arity function, so when
-  a level is off no message is built and no `Logger` call is made. The host
-  application's own `:logger` configuration (console level, formatters,
-  backends) still applies on top: this module only decides *whether* the engine
-  asks `Logger` to emit.
+  a level is off no message is built and no `Logger` call is made (a default run
+  does no extra work). The host application's own `:logger` configuration
+  (console level, formatters, backends) still applies on top: this module only
+  decides *whether* the engine asks `Logger` to emit.
   """
 
   @valid [nil, :off, :debug, :info, :warning, :error]

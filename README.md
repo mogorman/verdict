@@ -83,7 +83,7 @@ cumulative — a run at `:debug` emits everything; a run at `:info` emits `:info
 message is built and no `Logger` call is made, so the default run costs nothing
 extra. The host application's own `:logger` configuration (console level,
 formatters, backends) applies on top — this only decides *whether* the engine
-emits. See [Phase 6](docs/phase_6.md) for the step-by-level reference.
+emits. See `Verdict.Log` for the step-by-level reference.
 
 ## Installation
 
@@ -182,7 +182,7 @@ end)
 Custom operators (registered with `add_operator/3`) may return their own
 `{passed?, explanation}` for the report and may be 3-arity —
 `(fact_value, json_value, params)` — to be parameterized by the condition's `params`.
-See [Phase 4.5](docs/phase_4_5.md#operator-behaviors) for examples.
+See `Verdict.Operators` for the decorator and composite names and examples.
 
 ## From a JSON payload
 
@@ -313,38 +313,27 @@ or `{:error, {:bad_json, message}}`. `return!/3` returns the `RunResult` directl
 and raises `Verdict.InvalidRuleError` (carrying the failing `changeset`) or
 `Verdict.InvalidJSONError` (carrying the decoder's `reason` and `input`).
 
-## Phases
+## Modules
 
-Feature development is tracked in per-phase guides, each with features and
-examples:
+Every part of the engine is a focused module with its own reference (its
+`@moduledoc`, rendered by ExDoc):
 
-- [**Phase 1 — the core engine (MVP)**](docs/phase_1.md) — the Ecto data model,
-  the `:pure` store, facts and the almanac, built-in operators, condition trees,
-  the changeset evaluation report, short-circuiting and the JSON payload entry
-  point.
-- [**Phase 2 — the core rule language**](docs/phase_2.md) — fact paths (JSONPath),
-  custom operators, operator decorators and composite operators, comparing facts,
-  named condition references and custom properties.
-- [**Phase 3 — events, callbacks, and run control**](docs/phase_3.md) — event
-  callbacks (engine-level and per-rule), `Almanac.stop/1`, runtime facts, fact
-  priority, `cache: false`, `replace_facts_in_event_params` and error propagation.
-- [**Phase 4 — `:parallel` scheduling and pluggable stores**](docs/phase_4.md) —
-  `:parallel` scheduling over a shared almanac, and the pluggable `Store`
-  behaviour with the `:pure`, `:genserver` and `:ets` backends.
-- [**Phase 4.5 — operator behaviors, benchmarks, and coverage**](docs/phase_4_5.md) —
-  custom operators with their own explanations and per-condition parameters, a
-  `mix bench` benchmark suite, and ExCoveralls coverage with a ratchet.
-- [**Phase 5 — round-tripping, acceptance, and performance**](docs/phase_5.md) —
-  serializing rules back to JSON (`Rule.to_map/1`, `Engine.rules_as_map/1`), an
-  acceptance test ported from the reference engine, and a performance sanity guard
-  with a [performance guide](docs/performance.md).
-- [**Phase 6 — optional logging**](docs/phase_6.md) — an opt-in, level-gated
-  `:log` (on `new/1`, per run, or via application config) that emits each run
-  step through `Logger`, silent by default.
+| Module                                          | What it is |
+| ----------------------------------------------- | ---------- |
+| `Verdict.Engine`                                | the public API: build an engine, add rules / facts / operators / named conditions, register callbacks, and run |
+| `Verdict`                                       | the one-shot `return/3` / `return!/3` entry point |
+| `Verdict.Rule`, `Verdict.Event`, `Verdict.Condition` | the Ecto data model |
+| `Verdict.Fact`                                  | constant or dynamic facts |
+| `Verdict.Operators`                             | the built-in comparison operators, plus custom operators, decorators and composites |
+| `Verdict.Almanac`                               | the per-run fact store / cache (`ProcessLocal` and `Shared` backends) |
+| `Verdict.Store`                                 | the pluggable rule / fact store (`:pure`, `:genserver`, `:ets`) |
+| `Verdict.Evaluator`                             | the pure, serial or parallel run loop |
+| `Verdict.Evaluation`                            | the pure condition-tree evaluation and the changeset report |
+| `Verdict.RunResult` / `Verdict.RuleResult`      | the outcome of a run / a rule |
+| `Verdict.Log`                                   | optional, level-gated logging |
 
-Planned next:
-
-- **Phase 7** — publication: a CHANGELOG, ExDoc, and a Hex release workflow.
+For a field-by-field reference to every type and how a run flows through the
+engine, see [Architecture & data types](docs/architecture.md).
 
 ## Development
 
@@ -352,6 +341,12 @@ Planned next:
 mix deps.get
 mix test
 ```
+
+The suite includes an **acceptance test**
+(`test/json_rules/engine_acceptance_test.exs`) that ports the reference engine's
+end-to-end scenario, and a **performance sanity guard**
+(`test/json_rules/engine_performance_test.exs`) that fails CI on a catastrophic
+regression.
 
 The project targets Elixir 1.20, which runs the compiler's native type checker by
 default, and is additionally checked with **Dialyzer** — a stricter, BEAM-level
