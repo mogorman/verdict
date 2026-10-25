@@ -61,11 +61,12 @@ defmodule Verdict.Engine do
 
   `on/3` registers a callback for the event `"success"`, `"failure"`, or a
   specific event `type`; `on_rule/4` registers one for a single rule, keyed by
-  its `id`. A callback is `fn first, almanac, rule_result`: for `"success"` /
-  `"failure"` `first` is the rule's full `event`; for a specific type (fired only
-  when that rule succeeds) it is the event's `params`. Callbacks run between
-  rules, after each rule is evaluated — a successful rule fires `"success"` and
-  then its own event type; a failed rule fires only `"failure"`.
+  its `id`. A callback is `fn first, almanac, rule_result`: a successful rule
+  fires `"success"` (with its `event`, or `nil` when none is declared) and then
+  its own event type (fired only when an event is declared, with the event's
+  `params`); a failed rule fires only `"failure"` (with its `failure_event`, or
+  `nil` when none is declared). Callbacks run between rules, after each rule is
+  evaluated.
 
   ## Run control
 
@@ -253,13 +254,17 @@ defmodule Verdict.Engine do
       %Ecto.Changeset{valid?: true} = changeset ->
         rule = Ecto.Changeset.apply_changes(changeset)
 
-        case Template.validate(rule.event.params) do
-          :ok ->
+        case template_errors(rule) do
+          [] ->
             {store, rule} = engine.store_module.add_rule(engine.store, rule)
             {:ok, %{engine | store: store}, rule}
 
-          {:error, messages} ->
-            invalid = Enum.reduce(messages, changeset, &add_template_error/2)
+          errors ->
+            invalid =
+              Enum.reduce(errors, changeset, fn {field, message}, cs ->
+                Ecto.Changeset.add_error(cs, field, message)
+              end)
+
             {:error, invalid}
         end
 
@@ -268,10 +273,22 @@ defmodule Verdict.Engine do
     end
   end
 
-  # Attaches one `eex_string` template-validation error to the changeset.
-  @spec add_template_error(String.t(), Ecto.Changeset.t()) :: Ecto.Changeset.t()
-  defp add_template_error(message, changeset),
-    do: Ecto.Changeset.add_error(changeset, :event, message)
+  # Syntax-checks every `eex_*` template in the rule's declared events
+  # (`:event` and `:failure_event`); returns `[{field, message}]` errors.
+  @spec template_errors(Rule.t()) :: [{atom(), String.t()}]
+  defp template_errors(%Rule{} = rule) do
+    template_errors([], :event, rule.event)
+    |> then(&template_errors(&1, :failure_event, rule.failure_event))
+  end
+
+  defp template_errors(errors, _field, nil), do: errors
+
+  defp template_errors(errors, field, event) do
+    case Template.validate(event.params) do
+      :ok -> errors
+      {:error, messages} -> errors ++ Enum.map(messages, &{field, &1})
+    end
+  end
 
   @doc """
   Removes a rule by its id or by name (removes all rules with that name).
@@ -454,7 +471,8 @@ defmodule Verdict.Engine do
 
   Returns a `Verdict.RunResult` whose `results` is a list of
   `Verdict.RuleResult` (in priority order) and whose `events` /
-  `failure_events` are the events of the valid / invalid rules.
+  `failure_events` are the events of the fired / not-fired rules that declare
+  one for their outcome.
   """
   @spec run(t(), Verdict.Almanac.fact_map(), opts()) :: Verdict.RunResult.t()
   def run(%__MODULE__{} = engine, runtime_facts \\ %{}, opts \\ []) do

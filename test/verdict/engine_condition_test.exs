@@ -36,8 +36,7 @@ defmodule Verdict.EngineConditionTest do
         Engine.new(allow_undefined_conditions: true)
         |> TestSupport.add_rule(%{conditions: @conditions, event: %{type: "checkSending"}})
 
-      %RunResult{events: [], failure_events: [event]} = Engine.run(engine, %{isRetired: true})
-      assert event.type == "checkSending"
+      %RunResult{events: [], failure_events: []} = Engine.run(engine, %{isRetired: true})
     end
 
     test "raises when allow_undefined_conditions is not set" do

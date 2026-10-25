@@ -1,6 +1,6 @@
 defmodule Verdict.Rule do
   @moduledoc """
-  A rule: a set of conditions and a single event.
+   A rule: a set of conditions and optional success / failure events.
 
   A `Rule` is an Ecto **schema** (not tied to any repo or database). An
   `Ecto.Changeset` casts and validates JSON-shaped attributes into a typed
@@ -48,10 +48,10 @@ defmodule Verdict.Rule do
   @doc """
   Casts and validates `attrs` into a rule changeset.
 
-  `attrs` may use string or atom keys. Required: `:event` (with a `type`) and
-  `:conditions` (whose root must be `all`, `any`, `not` or a condition
-  reference). `:priority` must be a positive integer. `:extra` is an optional
-  map of arbitrary custom properties carried along with the rule.
+   `attrs` may use string or atom keys. Required: `:conditions` (whose root must be
+   `all`, `any`, `not` or a condition reference). `:event` and `:failure_event` are
+   both optional. `:priority` must be a positive integer. `:extra` is an optional
+   map of arbitrary custom properties carried along with the rule.
   """
   @spec changeset(t() | %__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(%__MODULE__{} = rule, attrs) do
@@ -59,7 +59,7 @@ defmodule Verdict.Rule do
     |> cast(attrs, [:name, :priority, :extra, :conditions])
     |> cast_event_embed(:event, attrs)
     |> cast_event_embed(:failure_event, attrs)
-    |> validate_required([:event, :conditions])
+    |> validate_required([:conditions])
     |> validate_number(:priority, greater_than: 0)
     |> validate_change(:conditions, &validate_conditions_tree/2)
     |> ensure_id()
@@ -72,25 +72,23 @@ defmodule Verdict.Rule do
   `id` and the timestamps are omitted (they are Ecto internals, not part of the
   rule's JSON). A `priority` of `1` (the default) and an empty `extra` map are
   omitted, mirroring `Verdict.Types.Condition.to_map/1`. `conditions` is
-  serialized via `Verdict.Types.Condition.to_map/1` and `event` via
-  `Verdict.Event.to_map/1`.
+  serialized via `Verdict.Types.Condition.to_map/1`; `event` and
+  `failure_event` (via `Verdict.Event.to_map/1`) are omitted when undeclared.
   """
   @spec to_map(t()) :: map()
   def to_map(%__MODULE__{} = rule) do
-    base = %{
+    %{
       "name" => rule.name,
-      "event" => Event.to_map(rule.event),
       "conditions" => Types.Condition.to_map(rule.conditions)
     }
-
-    base
-    |> add_failure_event(rule.failure_event)
+    |> add_event(:event, rule.event)
+    |> add_event(:failure_event, rule.failure_event)
     |> put_priority(rule.priority)
     |> put_extra(rule.extra)
   end
 
-  defp add_failure_event(map, nil), do: map
-  defp add_failure_event(map, event), do: Map.put(map, "failure_event", Event.to_map(event))
+  defp add_event(map, _field, nil), do: map
+  defp add_event(map, field, event), do: Map.put(map, to_string(field), Event.to_map(event))
 
   defp put_priority(map, nil), do: map
   defp put_priority(map, 1), do: map

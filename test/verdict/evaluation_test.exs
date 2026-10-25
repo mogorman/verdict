@@ -238,7 +238,12 @@ defmodule Verdict.EvaluationTest do
       conditions = %{all: [%{fact: "age", operator: "greaterThanInclusive", value: 21}]}
 
       engine =
-        Engine.new() |> TestSupport.add_rule(%{conditions: conditions, event: %{type: "e"}})
+        Engine.new()
+        |> TestSupport.add_rule(%{
+          conditions: conditions,
+          event: %{type: "e"},
+          failure_event: %{type: "f"}
+        })
 
       %RunResult{events: [%_struct{type: "e"}], failure_events: [], results: [rr]} =
         Engine.run(engine, %{age: 30})
@@ -246,7 +251,7 @@ defmodule Verdict.EvaluationTest do
       assert rr.valid?
       assert rr.rule.event.type == "e"
 
-      %RunResult{events: [], failure_events: [%_struct{type: "e"}]} =
+      %RunResult{events: [], failure_events: [%_struct{type: "f"}]} =
         Engine.run(engine, %{age: 10})
     end
   end

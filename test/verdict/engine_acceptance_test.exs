@@ -97,7 +97,9 @@ defmodule Verdict.EngineAcceptanceTest do
     engine =
       engine
       |> Engine.on("success", fn event, _a, _r -> TestSupport.collect(success, event.type) end)
-      |> Engine.on("failure", fn event, _a, _r -> TestSupport.collect(failure, event.type) end)
+      |> Engine.on("failure", fn event, _a, _r ->
+        TestSupport.collect(failure, event && event.type)
+      end)
 
     handles = %{fact_order: fact_order, success: success, failure: failure}
     {engine, handles}
@@ -161,9 +163,11 @@ defmodule Verdict.EngineAcceptanceTest do
     refute second.valid?
 
     assert result.events == []
-    assert Enum.map(result.failure_events, & &1.type) == ["event-1", "event-2"]
+    # neither rule declares a failure_event, so none are reported; the
+    # "failure" callbacks still fire, with a nil payload
+    assert result.failure_events == []
     assert TestSupport.collected(handles.success) == []
-    assert TestSupport.collected(handles.failure) == ["event-1", "event-2"]
+    assert TestSupport.collected(handles.failure) == [nil, nil]
 
     # The high-priority fact is still computed before the low-priority one.
     assert_fact_order(handles.fact_order)

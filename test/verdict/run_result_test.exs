@@ -43,6 +43,7 @@ defmodule Verdict.RunResultTest do
       Engine.add_rule(engine, %{
         name: "senior",
         event: %{type: "senior-offer"},
+        failure_event: %{type: "not-senior"},
         conditions: %{all: [%{fact: "age", operator: "greaterThan", value: 65}]}
       })
 
@@ -54,7 +55,7 @@ defmodule Verdict.RunResultTest do
       map = engine() |> Engine.run(%{}) |> RunResult.to_map()
 
       assert Enum.map(map["events"], & &1["type"]) == ["targeted", "either"]
-      assert Enum.map(map["failure_events"], & &1["type"]) == ["senior-offer"]
+      assert Enum.map(map["failure_events"], & &1["type"]) == ["not-senior"]
 
       # Results are in descending priority order.
       [passed, short_circuited, failed] = map["results"]
@@ -65,6 +66,7 @@ defmodule Verdict.RunResultTest do
       assert passed["priority"] == 5
       assert passed["result"] == true
       assert passed["event"] == %{"type" => "targeted", "params" => %{"audience" => "under-40"}}
+      refute Map.has_key?(passed, "failure_event")
       assert passed["conditions"]["result"] == true
       assert passed["conditions"]["errors"] == []
       assert passed["conditions"]["empty_values"] == []
@@ -88,10 +90,13 @@ defmodule Verdict.RunResultTest do
       [skipped] = short_circuited["conditions"]["empty_values"]
       assert skipped == %{"fact" => "age", "operator" => "equal", "value" => 999}
 
-      # A failing rule: the leaf is reported under errors.
+      # A failing rule: the leaf is reported under errors, and only its
+      # failure event appears (no "event" key).
       assert failed["name"] == "senior"
       assert failed["priority"] == 1
       assert failed["result"] == false
+      assert failed["failure_event"] == %{"type" => "not-senior"}
+      refute Map.has_key?(failed, "event")
       assert failed["conditions"]["result"] == false
       assert failed["conditions"]["changes"] == []
 

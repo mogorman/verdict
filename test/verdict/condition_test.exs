@@ -182,12 +182,12 @@ defmodule Verdict.ConditionTest do
       assert rule.priority == 1
     end
 
-    test "requires an event" do
+    test "allows a rule without an event" do
       changeset =
         Rule.changeset(%Rule{}, %{conditions: %{all: [%{fact: "x", operator: "equal", value: 1}]}})
 
-      refute changeset.valid?
-      assert error_for(changeset, :event)
+      assert changeset.valid?
+      assert changeset.changes[:event] == nil
     end
 
     test "requires an event type" do

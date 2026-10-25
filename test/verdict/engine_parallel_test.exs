@@ -45,7 +45,7 @@ defmodule Verdict.EngineParallelTest do
     assert Enum.sort(Enum.map(serial.failure_events, & &1.type)) ==
              Enum.sort(Enum.map(parallel.failure_events, & &1.type))
 
-    key = fn rr -> {rr.valid?, rr.event.type} end
+    key = fn rr -> {rr.valid?, rr.event && rr.event.type} end
     assert Enum.sort(Enum.map(serial.results, key)) == Enum.sort(Enum.map(parallel.results, key))
   end
 

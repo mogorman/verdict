@@ -3,8 +3,9 @@ defmodule Verdict.RunResult do
   The outcome of a single `Verdict.Engine.run/3` call.
 
   `results` is a list of `Verdict.RuleResult` (in priority order); each carries
-  its rule, evaluation report, event, and outcome. `events` / `failure_events`
-  are the events of the valid / invalid rules respectively.
+  its rule, evaluation report, the event of its outcome, and outcome. `events`
+  / `failure_events` are the events of the fired / not-fired rules that declare
+  one for their outcome.
   """
   alias Verdict.{Event, RuleResult}
 
@@ -19,10 +20,11 @@ defmodule Verdict.RunResult do
   @doc """
   Serializes the run result into a JSON-compatible map (string keys).
 
-  `events` / `failure_events` are the events of the fired / not-fired rules (via
-  `Verdict.Event.to_map/1`); `results` is one entry per rule, in priority order
-  (via `Verdict.RuleResult.to_map/1`). See that function for the leaf-report
-  shape and the JSON-encodability note on fact values.
+  `events` / `failure_events` are the events of the fired / not-fired rules
+  that declare one for their outcome (via `Verdict.Event.to_map/1`); `results`
+  is one entry per rule, in priority order (via `Verdict.RuleResult.to_map/1`).
+  See that function for the leaf-report shape and the JSON-encodability note
+  on fact values.
   """
   @spec to_map(t()) :: map()
   def to_map(%__MODULE__{} = run_result) do

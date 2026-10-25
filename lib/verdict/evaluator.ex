@@ -5,9 +5,10 @@ defmodule Verdict.Evaluator do
    `run/4` evaluates a set of rules against a set of facts and returns a
    `Verdict.RunResult`. Rules are grouped into priority buckets and the buckets
    run highest-priority first. Each rule's condition tree is evaluated by
-   `Verdict.Evaluation` into a pure `Ecto.Changeset` report; the run collects
-   the events of the valid rules, the failure events of the invalid ones, and the
-   per-rule reports (in priority order).
+   `Verdict.Evaluation` into a pure `Ecto.Changeset` report; only the event of
+   the rule's outcome is then rendered (a fired rule's `event`, a not-fired
+   rule's `failure_event` — both optional), and the run collects those events
+   plus the per-rule reports (in priority order).
 
    Scheduling is selected by the `:schedule` option: `:serial` evaluates a bucket's
    rules one at a time; `:parallel` runs them concurrently over a shared almanac
@@ -206,29 +207,41 @@ defmodule Verdict.Evaluator do
   end
 
   defp evaluate_rule(rule, context, replace_facts) do
-    event =
-      rule.event
-      |> render_event_params(context)
-      |> maybe_resolve_facts(replace_facts, context)
-
-    failure_event =
-      rule.failure_event
-      |> render_event_params(context)
-      |> maybe_resolve_facts(replace_facts, context)
-
     case Evaluation.eval(rule.conditions, context) do
       passed? when is_boolean(passed?) ->
-        %RuleResult{rule: rule, changeset: nil, event: event, failure_event: failure_event, valid?: passed?}
+        rule_result(rule, nil, passed?, context, replace_facts)
 
       changeset ->
-        %RuleResult{
-          rule: rule,
-          changeset: changeset,
-          event: event,
-          failure_event: failure_event,
-          valid?: changeset.valid?
-        }
+        rule_result(rule, changeset, changeset.valid?, context, replace_facts)
     end
+  end
+
+  # Only the event of the rule's outcome is rendered: a valid rule renders its
+  # `event`, an invalid one its `failure_event`; the other is left `nil`
+  # (undeclared events stay `nil`).
+  defp rule_result(rule, changeset, valid?, context, replace_facts) do
+    {event, failure_event} =
+      if valid? do
+        {render_event(rule.event, replace_facts, context), nil}
+      else
+        {nil, render_event(rule.failure_event, replace_facts, context)}
+      end
+
+    %RuleResult{
+      rule: rule,
+      changeset: changeset,
+      event: event,
+      failure_event: failure_event,
+      valid?: valid?
+    }
+  end
+
+  defp render_event(nil, _replace_facts, _context), do: nil
+
+  defp render_event(event, replace_facts, context) do
+    event
+    |> render_event_params(context)
+    |> maybe_resolve_facts(replace_facts, context)
   end
 
   # Renders any `eex_string` templates in an event's params (see
@@ -243,21 +256,23 @@ defmodule Verdict.Evaluator do
   defp maybe_resolve_facts(event, true, context), do: resolve_event_params(event, context)
   defp maybe_resolve_facts(event, false, _context), do: event
 
-  # Fires a rule's events. A successful rule emits "success" (with the full
-  # event) and then its own event type (with the event params); a failed rule
-  # emits only "failure".
-  defp emit_callbacks(
-         callbacks,
-         %RuleResult{event: event, valid?: valid?} = rule_result,
-         almanac,
-         log
-       ) do
-    if valid? do
-      emit(callbacks, "success", event, almanac, rule_result, log)
-      emit(callbacks, event.type, event.params, almanac, rule_result, log)
+  # Fires a rule's callbacks. A successful rule fires "success" (with its
+  # event, or nil) and then its event type (only when an event is declared,
+  # with the event params); a failed rule fires only "failure" (with its
+  # failure event, or nil).
+  defp emit_callbacks(callbacks, %RuleResult{} = rule_result, almanac, log) do
+    if rule_result.valid? do
+      emit(callbacks, "success", rule_result.event, almanac, rule_result, log)
+      emit_type(callbacks, rule_result.event, almanac, rule_result, log)
     else
-      emit(callbacks, "failure", event, almanac, rule_result, log)
+      emit(callbacks, "failure", rule_result.failure_event, almanac, rule_result, log)
     end
+  end
+
+  defp emit_type(_callbacks, nil, _almanac, _rule_result, _log), do: :ok
+
+  defp emit_type(callbacks, event, almanac, rule_result, log) do
+    emit(callbacks, event.type, event.params, almanac, rule_result, log)
   end
 
   defp emit(callbacks, type, first, almanac, rule_result, log) do
@@ -281,10 +296,10 @@ defmodule Verdict.Evaluator do
     {valid, invalid} = Enum.split_with(results, & &1.valid?)
 
     %RunResult{
-      events: Enum.map(valid, & &1.event),
-      # A failed rule reports its declared failure event when it has one,
-      # otherwise its (unfired) success event, preserving the prior behaviour.
-      failure_events: Enum.map(invalid, fn rr -> rr.failure_event || rr.event end),
+      events: Enum.reject(Enum.map(valid, & &1.event), &is_nil/1),
+      # A failed rule contributes its failure event when it declares one;
+      # rules that declare no failure event contribute nothing.
+      failure_events: Enum.reject(Enum.map(invalid, & &1.failure_event), &is_nil/1),
       results: results
     }
   end

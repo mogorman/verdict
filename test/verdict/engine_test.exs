@@ -31,10 +31,8 @@ defmodule Verdict.EngineTest do
     test "48-minute game with only 5 fouls does not fire" do
       {:ok, engine, _} = fouled_out_engine()
 
-      %RunResult{events: [], failure_events: [event]} =
+      %RunResult{events: [], failure_events: []} =
         Engine.run(engine, %{gameDuration: 48, personalFoulCount: 5})
-
-      assert event.type == "fouledOut"
     end
 
     test "48-minute game with 6 fouls" do

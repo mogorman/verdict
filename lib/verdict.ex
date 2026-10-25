@@ -2,12 +2,14 @@ defmodule Verdict do
   @moduledoc """
   A rules engine expressed as data, modelled with Ecto and evaluated in Elixir.
 
-  `Verdict` is an Elixir/Ecto reimplementation of
-  [json-rules-engine](https://github.com/CacheControl/json-rules-engine).
-  Rules are composed of simple, easy-to-read condition trees (expressed as
-  maps, JSON-compatible) plus a single event. When the engine runs, each
-  rule's conditions are evaluated against a set of *facts*; if the result is
-  truthy the rule's event is emitted as a success, otherwise as a failure.
+   `Verdict` is an Elixir/Ecto reimplementation of
+   [json-rules-engine](https://github.com/CacheControl/json-rules-engine).
+   Rules are composed of simple, easy-to-read condition trees (expressed as
+   maps, JSON-compatible) plus an optional event (and optional failure
+   event). When the engine runs, each rule's conditions are evaluated against a
+   set of *facts*; if the result is truthy the rule's event is emitted as a
+   success, otherwise its failure event is emitted as a failure (if the rule
+   declares one).
 
   ## Modelled with Ecto, stored without a database
 

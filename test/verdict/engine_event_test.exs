@@ -63,11 +63,24 @@ defmodule Verdict.EngineEventTest do
     assert [%{canOrderDrinks: true}] = TestSupport.collected(collected)
   end
 
-  test "failure callback receives the full event for an invalid rule" do
+  test "failure callback receives the failure event for an invalid rule" do
     collected = TestSupport.start_collector()
 
     engine =
-      drinking_engine(age: 10, qualified: false)
+      Engine.new()
+      |> TestSupport.add_rule(%{
+        conditions: %{
+          any: [
+            %{fact: "age", operator: "greaterThanInclusive", value: 21},
+            %{fact: "qualified", operator: "equal", value: true}
+          ]
+        },
+        event: @event,
+        failure_event: %{type: "cannot-drink"},
+        priority: 100
+      })
+      |> Engine.add_fact("age", 10)
+      |> Engine.add_fact("qualified", false)
       |> Engine.on("failure", fn event, _a, rr ->
         TestSupport.collect(collected, {event.type, rr.valid?})
       end)
@@ -75,8 +88,8 @@ defmodule Verdict.EngineEventTest do
 
     %RunResult{failure_events: [event], events: []} = Engine.run(engine)
 
-    assert event.type == "setDrinkingFlag"
-    assert [{"setDrinkingFlag", false}] = TestSupport.collected(collected)
+    assert event.type == "cannot-drink"
+    assert [{"cannot-drink", false}] = TestSupport.collected(collected)
   end
 
   test "an event handler can add a runtime fact that later rules read" do
@@ -221,6 +234,34 @@ defmodule Verdict.EngineEventTest do
       assert changeset.errors != []
     end
 
+    test "rejects an ill-formed eex_string in a failure_event at add_rule" do
+      engine = Engine.new()
+
+      assert {:error, changeset} =
+               Engine.add_rule(engine, %{
+                 conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
+                 failure_event: %{type: "t", params: %{m: %{eex_string: "<%= unclosed"}}}
+               })
+
+      assert changeset.errors != []
+    end
+
+    test "does not render a rule's failure_event when the rule fires" do
+      # the failure template uses control flow, which raises if rendered without
+      # allow_unsafe_eex — so a firing rule must never touch it
+      engine =
+        Engine.new()
+        |> Engine.add_fact("n", 1)
+        |> TestSupport.add_rule(%{
+          conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
+          event: %{type: "t"},
+          failure_event: %{type: "f", params: %{m: %{eex_string: "<%= if n do %>y<% end %>"}}}
+        })
+
+      %RunResult{events: [%_struct{type: "t"}], failure_events: []} =
+        Engine.run(engine, %{ok: true})
+    end
+
     test "raises at run time for control flow when allow_unsafe_eex is off" do
       engine =
         Engine.new()
@@ -284,7 +325,8 @@ defmodule Verdict.EngineEventTest do
         |> Engine.add_fact("name", "Mog")
         |> TestSupport.add_rule(%{
           conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
-          event: %{type: "greeted", params: %{message: %{eex_string: "Hello <%= name %>!"}}}
+          event: %{type: "greeted", params: %{message: %{eex_string: "Hello <%= name %>!"}}},
+          failure_event: %{type: "not-greeted", params: %{reason: %{eex_string: "<%= name %> was not ok"}}}
         })
         |> Engine.on("failure", fn event, _a, _rr ->
           TestSupport.collect(collected, event)
@@ -293,10 +335,29 @@ defmodule Verdict.EngineEventTest do
       %RunResult{events: [], failure_events: [event]} = Engine.run(engine, %{ok: false})
 
       # the failure event is rendered exactly like a success event would be
-      assert event.params == %{message: "Hello Mog!"}
+      assert event.params == %{reason: "Mog was not ok"}
       assert [rendered] = TestSupport.collected(collected)
-      assert rendered.params == %{message: "Hello Mog!"}
+      assert rendered.params == %{reason: "Mog was not ok"}
     end
+  end
+
+  test "a rule without an event fires its success callback with a nil payload" do
+    collected = TestSupport.start_collector()
+
+    engine =
+      Engine.new()
+      |> TestSupport.add_rule(%{
+        conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
+        event: nil
+      })
+      |> Engine.on("success", fn event, _a, _rr -> TestSupport.collect(collected, event) end)
+
+    %RunResult{events: [], failure_events: [], results: [rr]} = Engine.run(engine, %{ok: true})
+
+    assert rr.valid?
+    assert rr.event == nil
+    assert [nil] = TestSupport.collected(collected)
+    refute Map.has_key?(Verdict.RuleResult.to_map(rr), "event")
   end
 
   test "a rule's failure_event replaces its success event in failure results when it does not fire" do

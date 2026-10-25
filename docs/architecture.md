@@ -48,7 +48,8 @@ descending priority order).
 | `name`        | `String.t() \| nil`               | optional identifier                          |
 | `priority`    | `integer()` (default `1`)         | higher runs first; must be `> 0`             |
 | `extra`       | `map()` (default `%{}`)           | arbitrary custom properties                  |
-| `event`       | `Verdict.Event.t()`             | required                                     |
+| `event`       | `Verdict.Event.t() \| nil`      | optional; emitted when the rule fires        |
+| `failure_event` | `Verdict.Event.t() \| nil`    | optional; emitted when the rule does not fire |
 | `conditions`  | `Verdict.Condition.t()`         | required; root is `all`/`any`/`not`/`ref`    |
 | `inserted_at`/`updated_at` | `NaiveDateTime.t() \| nil` | present but always `nil` (no repo)          |
 
@@ -110,8 +111,8 @@ The outcome of one `Engine.run/3`.
 
 | Field            | Type                                  |
 | ---------------- | ------------------------------------- |
-| `events`         | `[Event.t()]` — events of valid rules |
-| `failure_events` | `[Event.t()]` — events of invalid rules |
+| `events`         | `[Event.t()]` — events of fired rules that declare one |
+| `failure_events` | `[Event.t()]` — failure events of not-fired rules that declare one |
 | `results`        | `[RuleResult.t()]` — in priority order |
 
 `RunResult.to_map/1` and `RuleResult.to_map/1` serialize the run (and each rule's
@@ -297,10 +298,12 @@ Engine.run(engine, runtime_facts, opts)
   │        :serial  -> its rules, one at a time in order
   │        :parallel-> its rules concurrently (Task.async_stream,
   │                    bounded by parallel_concurrency)
-  │       per rule: Evaluation.eval(rule.conditions, context) -> a pure Ecto.Changeset
-  │                 build a RuleResult (event fact-refs resolved if replace_facts_in_event_params)
-  │                 fire engine + per-rule callbacks ("success" then type, or "failure")
-  │  5. collect: events (valid), failure_events (invalid), results
+   │       per rule: Evaluation.eval(rule.conditions, context) -> a pure Ecto.Changeset
+   │                 render the outcome's event only (event if fired, failure_event
+   │                 if not; fact-refs resolved if replace_facts_in_event_params)
+   │                 build a RuleResult, fire engine + per-rule callbacks
+   │                 ("success" then type, or "failure")
+   │  5. collect: events (fired), failure_events (not-fired), results
   │  6. after: Almanac.destroy(almanac)
   ▼
 %RunResult{events: …, failure_events: …, results: [RuleResult]}

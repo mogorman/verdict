@@ -13,10 +13,23 @@ defmodule Verdict.EngineFailureTest do
     engine =
       Engine.new()
       |> Engine.add_fact("age", 10)
+      |> TestSupport.add_rule(%{
+        conditions: @conditions,
+        event: @event,
+        failure_event: %{type: "failed"}
+      })
+
+    assert %RunResult{events: [], failure_events: [%_struct{type: "failed"}]} =
+             Engine.run(engine)
+  end
+
+  test "emits nothing when a rule fails without a declared failure event" do
+    engine =
+      Engine.new()
+      |> Engine.add_fact("age", 10)
       |> TestSupport.add_rule(%{conditions: @conditions, event: @event})
 
-    assert %RunResult{events: [], failure_events: [%_struct{type: "generic"}]} =
-             Engine.run(engine)
+    assert %RunResult{events: [], failure_events: []} = Engine.run(engine)
   end
 
   test "does not emit a failure event when a rule passes" do

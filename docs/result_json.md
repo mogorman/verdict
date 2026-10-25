@@ -36,6 +36,7 @@ A payload with facts and rules:
     {
       "name": "senior",
       "event": { "type": "senior-offer" },
+      "failure_event": { "type": "not-senior" },
       "conditions": { "all": [ { "fact": "age", "operator": "greaterThan", "value": 65 } ] }
     }
   ]
@@ -74,7 +75,7 @@ json_out =
     { "type": "targeted", "params": { "audience": "under-40" } }
   ],
   "failure_events": [
-    { "type": "senior-offer" }
+    { "type": "not-senior" }
   ],
   "results": [
     {
@@ -96,7 +97,7 @@ json_out =
       "name": "senior",
       "priority": 1,
       "result": false,
-      "event": { "type": "senior-offer" },
+      "failure_event": { "type": "not-senior" },
       "conditions": {
         "result": false,
         "changes": [],
@@ -113,10 +114,12 @@ json_out =
 ## Reading the report
 
 - **`events` / `failure_events`** — the events of the rules that fired / did not
-  fire (a fired rule emits its event as a success; a rule whose conditions are
-  falsy emits it as a failure).
+  fire. A rule contributes to `events` only if it declares an `event`, and to
+  `failure_events` only if it declares a `failure_event`.
 - **`results`** — one entry per rule, in descending `priority` order. Each has the
-  rule's `name` and `priority`, whether it fired (`result`), its `event`, and a
+  rule's `name` and `priority`, whether it fired (`result`), its outcome's event
+  (`event` for a fired rule, `failure_event` for a not-fired rule — omitted when
+  the rule declares none), and a
   `conditions` report.
 - **`conditions`** is the evaluation report for that rule:
   - `changes` — the leaves that **passed**, in evaluation order.

@@ -3,14 +3,16 @@ defmodule Verdict.RuleResult do
   The outcome of evaluating a single rule during a run.
 
   A rule result carries the evaluated `rule`, its evaluation `changeset` (the
-  report described in `Verdict.Evaluation`), the `event` the rule emits, and
+  report described in `Verdict.Evaluation`), the event of the rule's outcome —
+  `event` when it fired, `failure_event` when it did not (the other is
+  `nil`; both are `nil` when the rule declares none for its outcome) — and
   whether the rule fired (`valid?`). The same struct is handed to event
   callbacks (`Verdict.Engine.on/3`) as their third argument and collected into
   `Verdict.RunResult.results`.
 
-  `event` is the rule's declared event; when the engine is configured with
-  `replace_facts_in_event_params: true`, the fact references in `event.params`
-  are resolved to their computed values first.
+  When the engine is configured with `replace_facts_in_event_params: true`, the
+  fact references in the rendered event's `params` are resolved to their
+  computed values.
   """
   alias Verdict.{Event, Rule}
 
@@ -19,7 +21,7 @@ defmodule Verdict.RuleResult do
   @type t :: %__MODULE__{
           rule: Rule.t(),
           changeset: Ecto.Changeset.t(),
-          event: Event.t(),
+          event: Event.t() | nil,
           failure_event: Event.t() | nil,
           valid?: boolean()
         }
@@ -27,12 +29,13 @@ defmodule Verdict.RuleResult do
   @doc """
   Serializes the rule result into a JSON-compatible map (string keys).
 
-  Carries the rule's `name` and `priority`, its `event` (via
-  `Verdict.Event.to_map/1`), whether it fired (`result`), and a `conditions`
-  report: the leaves that were evaluated — `changes` (passed) and `errors`
-  (failed), each with the `operator`, the expected `value`, the path-resolved
-  `actual`, and the raw computed `factResult` — plus any leaves short-circuited
-  before they were reached (`empty_values`).
+   Carries the rule's `name` and `priority`, whether it fired (`result`), and
+   a `conditions` report: the leaves that were evaluated — `changes` (passed)
+   and `errors` (failed), each with the `operator`, the expected `value`, the
+   path-resolved `actual`, and the raw computed `factResult` — plus any leaves
+   short-circuited before they were reached (`empty_values`). `event` /
+   `failure_event` (via `Verdict.Event.to_map/1`) are included only when the
+   rule declared one for its outcome, mirroring `Verdict.Rule.to_map/1`.
 
   The leaf values (`value`, `actual`, `factResult`) are the raw Elixir terms the
   engine computed; the map is JSON-encodable as long as the facts produce
@@ -46,15 +49,14 @@ defmodule Verdict.RuleResult do
       "name" => rule_result.rule.name,
       "priority" => rule_result.rule.priority,
       "result" => rule_result.valid?,
-      "event" => Event.to_map(rule_result.event),
       "conditions" => conditions_map(rule_result.changeset)
     }
-    |> put_failure_event(rule_result.failure_event)
+    |> put_event(:event, rule_result.event)
+    |> put_event(:failure_event, rule_result.failure_event)
   end
 
-  # Omitted when the rule declares no failure event, mirroring `Verdict.Rule.to_map/1`.
-  defp put_failure_event(map, nil), do: map
-  defp put_failure_event(map, event), do: Map.put(map, "failure_event", Event.to_map(event))
+  defp put_event(map, _field, nil), do: map
+  defp put_event(map, field, event), do: Map.put(map, to_string(field), Event.to_map(event))
 
   # A `:result_only` run builds no report, so `changeset` is `nil` and the
   # `conditions` key is `nil` too.
