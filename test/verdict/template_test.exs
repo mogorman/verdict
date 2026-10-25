@@ -13,6 +13,11 @@ defmodule Verdict.TemplateTest do
 
   defp bnd, do: Template.binding(almanac(%{"bar" => "x", "count" => 5}))
 
+  test "marker_types lists the typed eex_* markers" do
+    assert Template.marker_types() ==
+             [:string, :integer, :float, :number, :boolean, :list, :object]
+  end
+
   test "renders an eex_string marker against the binding" do
     assert Template.render(%{eex_string: "foo <%= bar %>"}, bnd(), false) == "foo x"
   end

@@ -35,16 +35,15 @@ defmodule Verdict.Template do
   """
   alias Verdict.Almanac
 
+  # The typed `eex_*` marker types, in editor order. The marker key is `eex_<type>`.
+  @eex_marker_types [:string, :integer, :float, :number, :boolean, :list, :object]
+
   # The `eex_*` marker keys and the type each coerces its rendered string to.
-  @eex_markers %{
-    "eex_string" => :string,
-    "eex_integer" => :integer,
-    "eex_float" => :float,
-    "eex_number" => :number,
-    "eex_boolean" => :boolean,
-    "eex_list" => :list,
-    "eex_object" => :object
-  }
+  @eex_markers Map.new(Enum.map(@eex_marker_types, fn type -> {"eex_#{type}", type} end))
+
+  @doc "The typed `eex_*` event-template marker types, in editor order."
+  @spec marker_types() :: [atom()]
+  def marker_types, do: @eex_marker_types
 
   @doc "Builds the EEx binding for an almanac. Call once per event, not per template."
   @spec binding(Almanac.t()) :: keyword()
