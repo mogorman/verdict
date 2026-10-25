@@ -86,7 +86,7 @@ defmodule Verdict.Engine do
   `new(store: {module, handle})`; the engine reuses it without re-creating it —
   see `Verdict.Store` for the backends and how to write your own.
   """
-  alias Verdict.{Evaluator, Fact, Log, Rule, Store.Pure, Types}
+  alias Verdict.{Evaluator, Fact, Log, Rule, Store.Pure, Template, Types}
   alias Verdict.Store.Ets, as: EtsStore
   alias Verdict.Store.GenServer, as: GenServerStore
 
@@ -141,11 +141,18 @@ defmodule Verdict.Engine do
      * `:path_resolver` – a `(value, path) -> term()` used to resolve a
        condition's `path`. When omitted, the engine's default (JSONPath)
        resolver is used.
-     * `:replace_facts_in_event_params` – default `false`. When `true`, a
-       top-level event `params` value that is a fact reference (`%{fact: …}`,
-       optionally with `params` / `path`) is resolved to its computed value
-       before the event is emitted.
-     * `:log` – a logging threshold: `nil` (default, off), `:debug`, `:info`,
+      * `:replace_facts_in_event_params` – default `false`. When `true`, a
+        top-level event `params` value that is a fact reference (`%{fact: …}`,
+        optionally with `params` / `path`) is resolved to its computed value
+        before the event is emitted.
+      * `:allow_unsafe_eex` – default `false` (falling back to the application
+        config `config :verdict, :allow_unsafe_eex, value`). An event `params`
+        value shaped `%{eex_string: "…"}` is rendered as an EEx template at run
+        time (see `Verdict.Template`). When `true`, such a template may use EEx
+        control flow (`<% if %>`, `<% for %>`, `<% … do %>`); when `false` only
+        `<%= expr %>` interpolation is allowed and a control-flow template
+        raises.
+      * `:log` – a logging threshold: `nil` (default, off), `:debug`, `:info`,
       `:warning`, or `:error`. When set, each step of a run is emitted via
       `Logger`. Falls back to the application config
       (`config :verdict, :log, level`) when not set, and may be
@@ -166,7 +173,13 @@ defmodule Verdict.Engine do
         path_resolver: Keyword.get(opts, :path_resolver),
         strict: Keyword.get(opts, :strict, false),
         report: validate_report!(Keyword.get(opts, :report, :full)),
-        replace_facts_in_event_params: Keyword.get(opts, :replace_facts_in_event_params, false)
+        replace_facts_in_event_params: Keyword.get(opts, :replace_facts_in_event_params, false),
+        allow_unsafe_eex:
+          Keyword.get(
+            opts,
+            :allow_unsafe_eex,
+            Application.get_env(:verdict, :allow_unsafe_eex, false)
+          )
       ] ++ log_option(opts)
 
     {store_module, handle} = init_store(store_spec, store_options)
@@ -239,13 +252,26 @@ defmodule Verdict.Engine do
     case Rule.changeset(%Rule{}, attrs) do
       %Ecto.Changeset{valid?: true} = changeset ->
         rule = Ecto.Changeset.apply_changes(changeset)
-        {store, rule} = engine.store_module.add_rule(engine.store, rule)
-        {:ok, %{engine | store: store}, rule}
+
+        case Template.validate(rule.event.params) do
+          :ok ->
+            {store, rule} = engine.store_module.add_rule(engine.store, rule)
+            {:ok, %{engine | store: store}, rule}
+
+          {:error, messages} ->
+            invalid = Enum.reduce(messages, changeset, &add_template_error/2)
+            {:error, invalid}
+        end
 
       %Ecto.Changeset{} = changeset ->
         {:error, changeset}
     end
   end
+
+  # Attaches one `eex_string` template-validation error to the changeset.
+  @spec add_template_error(String.t(), Ecto.Changeset.t()) :: Ecto.Changeset.t()
+  defp add_template_error(message, changeset),
+    do: Ecto.Changeset.add_error(changeset, :event, message)
 
   @doc """
   Removes a rule by its id or by name (removes all rules with that name).

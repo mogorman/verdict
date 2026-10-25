@@ -132,6 +132,44 @@ event.type    #=> "fouledOut"
 event.params  #=> %{message: "Player has fouled out!"}
 ```
 
+### Events
+
+An event's `params` values may be EEx templates: a value shaped
+`%{eex_string: "…"}` is rendered at run time and replaced by its string, so the
+emitted event is a filled-in JSON object. Templates run against the run's facts —
+a bare variable for each fact, a `facts` map, and the `almanac` itself:
+
+```elixir
+engine = Verdict.Engine.new() |> Verdict.Engine.add_fact("name", "Mog")
+
+{:ok, engine, _rule} =
+  Verdict.Engine.add_rule(engine, %{
+    event: %{
+      type: "greeted",
+      params: %{
+        message: %{eex_string: "Hello <%= name %>!"},          # bare fact variable
+        meta: %{eex_string: "score=<%= facts[\"score\"] %>"}   # indexed by id
+      }
+    },
+    conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]}
+  })
+
+%Verdict.RunResult{events: [%{params: params}]} =
+  Verdict.Engine.run(engine, %{ok: true, score: 10})
+
+params  #=> %{message: "Hello Mog!", meta: "score=10"}
+```
+
+Plain strings pass through untouched — only the `eex_string` marker becomes a
+template. Only `<%= expr %>` interpolation is allowed by default; a template that
+uses EEx control flow (which may run arbitrary code) needs `allow_unsafe_eex: true`,
+on `new/1` or per run:
+
+```elixir
+engine = Verdict.Engine.new(allow_unsafe_eex: true)
+# params: %{note: %{eex_string: "<%= if n do %>yes<% end %>"}}
+```
+
 ### Facts
 
 A fact is a constant or a function of `(params, almanac)`:
@@ -325,6 +363,7 @@ Every part of the engine is a focused module with its own reference (its
 | `Verdict.Rule`, `Verdict.Event`, `Verdict.Condition` | the Ecto data model |
 | `Verdict.Fact`                                  | constant or dynamic facts |
 | `Verdict.Operators`                             | the built-in comparison operators, plus custom operators, decorators and composites |
+| `Verdict.Template`                              | renders `eex_string` EEx templates in an event's `params` |
 | `Verdict.Almanac`                               | the per-run fact store / cache (`ProcessLocal` and `Shared` backends) |
 | `Verdict.Store`                                 | the pluggable rule / fact store (`:pure`, `:genserver`, `:ets`) |
 | `Verdict.Evaluator`                             | the pure, serial or parallel run loop |

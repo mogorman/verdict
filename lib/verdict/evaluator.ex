@@ -22,7 +22,8 @@ defmodule Verdict.Evaluator do
     Log,
     Rule,
     RuleResult,
-    RunResult
+    RunResult,
+    Template
   }
 
   @type opts :: keyword()
@@ -67,6 +68,7 @@ defmodule Verdict.Evaluator do
       memo_token: memo_token,
       path_resolver: Keyword.get(opts, :path_resolver),
       allow_undefined_conditions: Keyword.get(opts, :allow_undefined_conditions, false),
+      allow_unsafe_eex: Keyword.get(opts, :allow_unsafe_eex, false),
       strict: Keyword.get(opts, :strict, false),
       report: report,
       log: log
@@ -204,7 +206,10 @@ defmodule Verdict.Evaluator do
   end
 
   defp evaluate_rule(rule, context, replace_facts) do
-    event = if replace_facts, do: resolve_event_params(rule.event, context), else: rule.event
+    event =
+      rule.event
+      |> render_event_params(context)
+      |> maybe_resolve_facts(replace_facts, context)
 
     case Evaluation.eval(rule.conditions, context) do
       passed? when is_boolean(passed?) ->
@@ -214,6 +219,18 @@ defmodule Verdict.Evaluator do
         %RuleResult{rule: rule, changeset: changeset, event: event, valid?: changeset.valid?}
     end
   end
+
+  # Renders any `eex_string` templates in an event's params (see
+  # `Verdict.Template`); the binding is built once per event from the almanac.
+  defp render_event_params(%{params: params} = event, context) when is_map(params) do
+    binding = Template.binding(context.almanac)
+    %{event | params: Template.render(params, binding, context.allow_unsafe_eex)}
+  end
+
+  defp render_event_params(event, _context), do: event
+
+  defp maybe_resolve_facts(event, true, context), do: resolve_event_params(event, context)
+  defp maybe_resolve_facts(event, false, _context), do: event
 
   # Fires a rule's events. A successful rule emits "success" (with the full
   # event) and then its own event type (with the event params); a failed rule

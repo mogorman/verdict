@@ -28,8 +28,11 @@ defmodule Verdict.EvaluationContext do
     * `path_resolver` – a `(value, path) -> term()` used to resolve a
      condition's `path`; when `nil` the engine's default (JSONPath) resolver
      is used;
-   * `allow_undefined_conditions` – when `false` (default) an unregistered
-     condition reference raises; when `true` it evaluates to false;
+    * `allow_undefined_conditions` – when `false` (default) an unregistered
+      condition reference raises; when `true` it evaluates to false;
+    * `allow_unsafe_eex` – when `false` (default) an event `eex_string` template
+      that uses EEx control flow raises at render time; when `true` such
+      templates are permitted (see `Verdict.Template`);
    * `strict` – when `true`, disables short-circuiting of `all`/`any`;
    * `report` – how much of the per-condition report to build: `:full`
      (default) builds the full changeset; `:result_only` returns just the
@@ -52,6 +55,7 @@ defmodule Verdict.EvaluationContext do
             memo_token: nil,
             path_resolver: nil,
             allow_undefined_conditions: false,
+            allow_unsafe_eex: false,
             strict: false,
             report: :full,
             log: nil
@@ -66,6 +70,7 @@ defmodule Verdict.EvaluationContext do
           memo_token: reference(),
           path_resolver: (term(), String.t() -> term()) | nil,
           allow_undefined_conditions: boolean(),
+          allow_unsafe_eex: boolean(),
           strict: boolean(),
           report: report(),
           log: atom() | nil

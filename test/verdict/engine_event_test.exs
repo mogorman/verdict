@@ -178,4 +178,72 @@ defmodule Verdict.EngineEventTest do
       assert ["r1"] == TestSupport.collected(target)
     end
   end
+
+  describe "eex_string event params" do
+    test "renders markers to the specific-type callback and RunResult.events" do
+      collected = TestSupport.start_collector()
+
+      engine =
+        Engine.new()
+        |> Engine.add_fact("name", "Mog")
+        |> TestSupport.add_rule(%{
+          conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
+          event: %{
+            type: "greeted",
+            params: %{
+              message: %{eex_string: "Hello <%= name %>!"},
+              nested: %{inner: %{eex_string: "<%= name %>"}}
+            }
+          }
+        })
+        |> Engine.on("greeted", fn params, _a, _rr ->
+          TestSupport.collect(collected, params)
+        end)
+
+      %RunResult{events: [event]} = Engine.run(engine, %{ok: true})
+
+      expected = %{message: "Hello Mog!", nested: %{inner: "Mog"}}
+      assert event.params == expected
+      assert [rendered] = TestSupport.collected(collected)
+      assert rendered == expected
+    end
+
+    test "rejects an ill-formed eex_string template at add_rule" do
+      engine = Engine.new()
+
+      assert {:error, changeset} =
+               Engine.add_rule(engine, %{
+                 name: "bad",
+                 conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
+                 event: %{type: "greeted", params: %{message: %{eex_string: "<%= unclosed"}}}
+               })
+
+      assert changeset.errors != []
+    end
+
+    test "raises at run time for control flow when allow_unsafe_eex is off" do
+      engine =
+        Engine.new()
+        |> Engine.add_fact("n", 1)
+        |> TestSupport.add_rule(%{
+          conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
+          event: %{type: "t", params: %{m: %{eex_string: "<%= if n do %>y<% end %>"}}}
+        })
+
+      assert_raise ArgumentError, ~r/control flow/, fn -> Engine.run(engine, %{ok: true}) end
+    end
+
+    test "renders control flow when allow_unsafe_eex is true" do
+      engine =
+        Engine.new()
+        |> Engine.add_fact("n", 1)
+        |> TestSupport.add_rule(%{
+          conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
+          event: %{type: "t", params: %{m: %{eex_string: "<%= if n do %>y<% end %>"}}}
+        })
+
+      %RunResult{events: [event]} = Engine.run(engine, %{ok: true}, allow_unsafe_eex: true)
+      assert event.params == %{m: "y"}
+    end
+  end
 end
