@@ -21,6 +21,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `bench/profile/<config>_<report>.txt` per combination, so per-function hotspots
   can be compared mode by mode.
 
+### Fixed
+- **`eex_string` control-flow templates rendered to `""`.** The default EEx engine
+  returns only a template's trailing text, so block control flow
+  (`<% if %>…<% end %>`, `<% for %>…<% end %>`, …) produced an empty string. Rendering
+  now uses a capturing EEx engine (`Verdict.Template.Engine`) that accumulates static
+  text, `<%= expr %>` interpolations, and each control-flow block's result into the
+  output, so the whole template becomes its rendered string.
+
 ### Changed
 - **Performance: operator functions are resolved once per distinct operator, not
   once per leaf.** Each evaluated leaf's operator (built-in, custom, or

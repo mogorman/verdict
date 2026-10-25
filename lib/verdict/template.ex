@@ -105,7 +105,10 @@ defmodule Verdict.Template do
               "set allow_unsafe_eex: true to permit it"
     end
 
-    EEx.eval_string(template, binding)
+    # The capturing engine accumulates text, interpolations, and control-flow block
+    # results into one iodata value (the default EEx engine drops block output).
+    EEx.eval_string(template, binding, [engine: Verdict.Template.Engine])
+    |> IO.iodata_to_binary()
   end
 
   # "Safe" means interpolation-only: after stripping every `<%= … %>` tag, no `<%`

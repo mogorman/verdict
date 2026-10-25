@@ -53,6 +53,35 @@ defmodule Verdict.TemplateTest do
     assert Template.render(%{eex_string: "<%= if bar do %>y<% end %>"}, bnd(), true) == "y"
   end
 
+  test "a block if/else renders to its full output" do
+    assert Template.render(%{eex_string: "<% if count > 3 do %>many<% else %>few<% end %>"}, bnd(), true) ==
+             "many"
+  end
+
+  test "a block if/else takes the else branch" do
+    assert Template.render(%{eex_string: "<% if count > 9 do %>many<% else %>few<% end %>"}, bnd(), true) ==
+             "few"
+  end
+
+  test "interpolates inside a control-flow branch" do
+    assert Template.render(
+             %{eex_string: "<% if count > 3 do %>count=<%= count %><% end %>"},
+             bnd(),
+             true
+           ) == "count=5"
+  end
+
+  test "renders text around a control-flow block" do
+    assert Template.render(%{eex_string: "n=<% if count > 3 do %>big<% end %>"}, bnd(), true) ==
+             "n=big"
+  end
+
+  test "a for block renders each iteration, joined" do
+    a = almanac(%{"xs" => ["a", "b"]})
+    assert Template.render(%{eex_string: "<% for x <- xs do %><%= x %>-<% end %>"}, Template.binding(a), true) ==
+             "a-b-"
+  end
+
   test "validate returns :ok for well-formed templates" do
     assert :ok = Template.validate(%{a: %{eex_string: "<%= bar %>"}, b: [%{eex_string: "x"}]})
   end
