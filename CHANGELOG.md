@@ -27,7 +27,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (`<% if %>…<% end %>`, `<% for %>…<% end %>`, …) produced an empty string. Rendering
   now uses a capturing EEx engine (`Verdict.Template.Engine`) that accumulates static
   text, `<%= expr %>` interpolations, and each control-flow block's result into the
-  output, so the whole template becomes its rendered string.
+   output, so the whole template becomes its rendered string.
+- **`eex_string` templates are compiled once per process, not on every render.** Each
+  template's EEx AST is cached in the process dictionary and re-evaluated against the
+  run's binding, so repeated renders neither recompile (tokenize + parse) nor
+  re-emit stdlib EEx's "won't be output unless the EEx block starts with `<%=`"
+  notice on every render (it now appears at most once per template per process).
 
 ### Changed
 - **Performance: operator functions are resolved once per distinct operator, not

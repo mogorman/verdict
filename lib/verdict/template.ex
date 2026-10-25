@@ -105,10 +105,32 @@ defmodule Verdict.Template do
               "set allow_unsafe_eex: true to permit it"
     end
 
-    # The capturing engine accumulates text, interpolations, and control-flow block
-    # results into one iodata value (the default EEx engine drops block output).
-    EEx.eval_string(template, binding, [engine: Verdict.Template.Engine])
+    # Evaluate the cached compiled AST with the run's binding. The capturing engine
+    # accumulates text, interpolations, and control-flow block results into one
+    # iodata value (the default EEx engine drops block output).
+    compiled(template)
+    |> Code.eval_quoted(binding)
+    |> elem(0)
     |> IO.iodata_to_binary()
+  end
+
+  # Compiles `template` with the capturing engine and caches the quoted AST in the
+  # process dictionary, so repeated renders neither recompile (tokenize + parse)
+  # nor re-emit stdlib EEx's "won't be output unless it starts with `<%=`" notice.
+  # The AST is binding-independent; the run's binding is supplied at eval time.
+  defp compiled(template) do
+    key = {__MODULE__, :compiled}
+    cache = Process.get(key, %{})
+
+    case Map.fetch(cache, template) do
+      {:ok, ast} ->
+        ast
+
+      :error ->
+        ast = EEx.compile_string(template, [engine: Verdict.Template.Engine])
+        Process.put(key, Map.put(cache, template, ast))
+        ast
+    end
   end
 
   # "Safe" means interpolation-only: after stripping every `<%= … %>` tag, no `<%`
