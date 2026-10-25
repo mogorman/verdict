@@ -32,7 +32,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   template's EEx AST is cached in the process dictionary and re-evaluated against the
   run's binding, so repeated renders neither recompile (tokenize + parse) nor
   re-emit stdlib EEx's "won't be output unless the EEx block starts with `<%=`"
-  notice on every render (it now appears at most once per template per process).
+   notice on every render (it now appears at most once per template per process).
+- **Updating a rule's event raised instead of saving.** `changeset/2` used
+  `cast_embed(:event)`, which cannot update an `embeds_one` that has no id: it raises
+  whenever the rule already has an event (i.e. every update, though not a create).
+  The event is now cast through `Event.changeset/2` and set wholesale with
+  `put_embed/3`, so a rule's event type and params can be edited and saved.
 
 ### Changed
 - **Performance: operator functions are resolved once per distinct operator, not

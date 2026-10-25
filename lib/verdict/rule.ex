@@ -55,7 +55,7 @@ defmodule Verdict.Rule do
   def changeset(%__MODULE__{} = rule, attrs) do
     rule
     |> cast(attrs, [:name, :priority, :extra, :conditions])
-    |> cast_embed(:event)
+    |> put_event(attrs)
     |> validate_required([:event, :conditions])
     |> validate_number(:priority, greater_than: 0)
     |> validate_change(:conditions, &validate_conditions_tree/2)
@@ -99,6 +99,31 @@ defmodule Verdict.Rule do
       nil -> put_change(changeset, :id, Ecto.UUID.generate())
       _ -> changeset
     end
+  end
+
+  # Casts the event from `attrs` and sets it wholesale via `put_embed/3`, which
+  # sidesteps `cast_embed`'s id matching — the `event` embed has no id, so
+  # `cast_embed` raises when updating a rule that already has one. The event is
+  # validated by `Event.changeset/2` and its errors merged into the rule.
+  defp put_event(changeset, attrs) do
+    case Map.get(attrs, :event) || Map.get(attrs, "event") do
+      nil ->
+        changeset
+
+      event_attrs ->
+        event = Event.changeset(changeset.data.event || %Event{}, event_attrs(event_attrs))
+        put_embed(changeset, :event, event)
+    end
+  end
+
+  # Normalizes the event's `type` / `params` from string or atom keys.
+  defp event_attrs(map) do
+    %{
+      type: Map.get(map, :type, Map.get(map, "type")),
+      params: Map.get(map, :params, Map.get(map, "params"))
+    }
+    |> Enum.reject(fn {_k, v} -> is_nil(v) end)
+    |> Map.new()
   end
 
   defp validate_conditions_tree(field, %Condition{} = tree) do
