@@ -30,6 +30,7 @@ defmodule Verdict.Rule do
     embeds_one(:event, Event)
     embeds_one(:failure_event, Event)
     field(:conditions, Types.Condition)
+    field(:sample_facts, :map, default: nil)
     timestamps()
   end
 
@@ -41,6 +42,7 @@ defmodule Verdict.Rule do
            event: Event.t() | nil,
            failure_event: Event.t() | nil,
            conditions: Condition.t() | nil,
+           sample_facts: map() | nil,
           inserted_at: NaiveDateTime.t() | nil,
           updated_at: NaiveDateTime.t() | nil
         }
@@ -56,7 +58,7 @@ defmodule Verdict.Rule do
   @spec changeset(t() | %__MODULE__{}, map()) :: Ecto.Changeset.t()
   def changeset(%__MODULE__{} = rule, attrs) do
     rule
-    |> cast(attrs, [:name, :priority, :extra, :conditions])
+    |> cast(attrs, [:name, :priority, :extra, :conditions, :sample_facts])
     |> cast_event_embed(:event, attrs)
     |> cast_event_embed(:failure_event, attrs)
     |> validate_required([:conditions])
@@ -85,6 +87,7 @@ defmodule Verdict.Rule do
     |> add_event(:failure_event, rule.failure_event)
     |> put_priority(rule.priority)
     |> put_extra(rule.extra)
+    |> put_sample_facts(rule.sample_facts)
   end
 
   defp add_event(map, _field, nil), do: map
@@ -96,6 +99,12 @@ defmodule Verdict.Rule do
 
   defp put_extra(map, extra) when is_map(extra) and map_size(extra) == 0, do: map
   defp put_extra(map, extra), do: Map.put(map, "extra", extra)
+
+  # `sample_facts` is optional authoring metadata; omitted when absent or empty so
+  # it stays out of the rule's JSON (and the `to_map` ↔ cast round-trip is exact).
+  defp put_sample_facts(map, nil), do: map
+  defp put_sample_facts(map, sample_facts) when is_map(sample_facts) and map_size(sample_facts) == 0, do: map
+  defp put_sample_facts(map, sample_facts), do: Map.put(map, "sample_facts", sample_facts)
 
   # There is no repo to trigger primary-key autogeneration, so a UUID id is
   # assigned client-side when the rule is created.

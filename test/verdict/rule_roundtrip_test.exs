@@ -118,6 +118,26 @@ defmodule Verdict.RuleRoundTripTest do
 
       refute Map.has_key?(Rule.to_map(rule), "priority")
     end
+
+    test "round-trips sample_facts and omits it when absent" do
+      original = %{
+        "name" => "r",
+        "event" => %{"type" => "e"},
+        "conditions" => %{"all" => [%{"fact" => "x", "operator" => "equal", "value" => 1}]},
+        "sample_facts" => %{"player" => %{"hp" => 3}}
+      }
+
+      assert Rule.to_map(to_rule(original)) == original
+
+      empty =
+        to_rule(%{
+          "name" => "r",
+          "event" => %{"type" => "e"},
+          "conditions" => %{"all" => [%{"fact" => "x", "operator" => "equal", "value" => 1}]}
+        })
+
+      refute Map.has_key?(Rule.to_map(empty), "sample_facts")
+    end
   end
 
   describe "Rule.changeset/2" do

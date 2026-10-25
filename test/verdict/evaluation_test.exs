@@ -3,7 +3,7 @@ defmodule Verdict.EvaluationTest do
 
   use ExUnit.Case, async: true
 
-  alias Verdict.{Engine, RunResult}
+  alias Verdict.{Engine, Evaluation, RunResult}
   alias Verdict.TestSupport
 
   # Runs a single rule with the given conditions against the given facts and
@@ -400,6 +400,26 @@ defmodule Verdict.EvaluationTest do
         })
 
       refute changeset_of(engine, %{}).valid?
+    end
+  end
+
+  describe "resolve_path/2" do
+    test "resolves nested keys, array indices, and wildcards" do
+      data = %{"player" => %{"team" => %{"name" => "a"}, "tags" => [1, 2, 3]}}
+
+      assert Evaluation.resolve_path(data, "$.player.team.name") == "a"
+      assert Evaluation.resolve_path(data, "$.player.tags[0]") == 1
+      assert Evaluation.resolve_path(data, "$.player.tags[*]") == [1, 2, 3]
+    end
+
+    test "a no-match or invalid path resolves to nil" do
+      assert Evaluation.resolve_path(%{"a" => 1}, "$.missing") == nil
+      assert Evaluation.resolve_path(%{"a" => 1}, "$invalid[") == nil
+    end
+
+    test "a value that is not a map or list is returned unchanged" do
+      assert Evaluation.resolve_path(5, "$.a") == 5
+      assert Evaluation.resolve_path("str", "$.a") == "str"
     end
   end
 end

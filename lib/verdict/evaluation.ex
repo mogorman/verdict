@@ -279,6 +279,22 @@ defmodule Verdict.Evaluation do
     end
   end
 
+  @doc """
+  Resolves a leaf-style `path` (a JSONPath string) against `value` using the
+  default resolver — the same resolution the engine applies to a condition's
+  `path`. A value that is not a map or list is returned unchanged (a `path` is
+  only applied to structured values); a no-match or invalid path resolves to
+  `nil`, exactly as at run time.
+  """
+  @spec resolve_path(term(), String.t()) :: term()
+  def resolve_path(value, path) when is_binary(path) do
+    if is_map(value) or is_list(value) do
+      default_resolve_path(value, path, nil)
+    else
+      value
+    end
+  end
+
   defp fact_ref?(value),
     do: is_map(value) and (Map.has_key?(value, "fact") or Map.has_key?(value, :fact))
 
