@@ -54,12 +54,20 @@ defmodule Verdict.TemplateTest do
   end
 
   test "a block if/else renders to its full output" do
-    assert Template.render(%{eex_string: "<% if count > 3 do %>many<% else %>few<% end %>"}, bnd(), true) ==
+    assert Template.render(
+             %{eex_string: "<% if count > 3 do %>many<% else %>few<% end %>"},
+             bnd(),
+             true
+           ) ==
              "many"
   end
 
   test "a block if/else takes the else branch" do
-    assert Template.render(%{eex_string: "<% if count > 9 do %>many<% else %>few<% end %>"}, bnd(), true) ==
+    assert Template.render(
+             %{eex_string: "<% if count > 9 do %>many<% else %>few<% end %>"},
+             bnd(),
+             true
+           ) ==
              "few"
   end
 
@@ -78,7 +86,12 @@ defmodule Verdict.TemplateTest do
 
   test "a for block renders each iteration, joined" do
     a = almanac(%{"xs" => ["a", "b"]})
-    assert Template.render(%{eex_string: "<% for x <- xs do %><%= x %>-<% end %>"}, Template.binding(a), true) ==
+
+    assert Template.render(
+             %{eex_string: "<% for x <- xs do %><%= x %>-<% end %>"},
+             Template.binding(a),
+             true
+           ) ==
              "a-b-"
   end
 
@@ -89,5 +102,88 @@ defmodule Verdict.TemplateTest do
   test "validate reports ill-formed templates" do
     assert {:error, [message]} = Template.validate(%{a: %{eex_string: "<%= unclosed"}})
     assert message =~ "not valid EEx"
+  end
+
+  describe "typed markers" do
+    test "eex_integer renders to an integer" do
+      assert Template.render(%{eex_integer: "<%= count %>"}, bnd(), false) == 5
+    end
+
+    test "eex_integer rejects a float string" do
+      assert_raise ArgumentError, ~r/not an integer/, fn ->
+        Template.render(%{eex_integer: "<%= 3.14 %>"}, bnd(), false)
+      end
+    end
+
+    test "eex_float renders to a float, coercing an integral string" do
+      assert Template.render(%{eex_float: "<%= count %>"}, bnd(), false) == 5.0
+      assert Template.render(%{eex_float: "3.14"}, bnd(), false) == 3.14
+    end
+
+    test "eex_float rejects a non-numeric string" do
+      assert_raise ArgumentError, ~r/not a float/, fn ->
+        Template.render(%{eex_float: "abc"}, bnd(), false)
+      end
+    end
+
+    test "eex_number renders an int when whole, a float otherwise" do
+      assert Template.render(%{eex_number: "<%= count %>"}, bnd(), false) == 5
+      assert Template.render(%{eex_number: "<%= 3.14 %>"}, bnd(), false) == 3.14
+    end
+
+    test "eex_boolean renders to a boolean" do
+      assert Template.render(%{eex_boolean: "<%= true %>"}, bnd(), false) == true
+      assert Template.render(%{eex_boolean: "<%= false %>"}, bnd(), false) == false
+    end
+
+    test "eex_boolean rejects a non-boolean string" do
+      assert_raise ArgumentError, ~r/not a boolean/, fn ->
+        Template.render(%{eex_boolean: "<%= count %>"}, bnd(), false)
+      end
+    end
+
+    test "eex_list renders to a list from JSON" do
+      assert Template.render(%{eex_list: "[1, <%= count %>, 3]"}, bnd(), false) == [1, 5, 3]
+    end
+
+    test "eex_list rejects invalid JSON" do
+      assert_raise ArgumentError, ~r/not valid JSON/, fn ->
+        Template.render(%{eex_list: "1, 2, 3"}, bnd(), false)
+      end
+    end
+
+    test "eex_object renders to a map from JSON" do
+      assert Template.render(%{eex_object: "{\"n\": <%= count %>}"}, bnd(), false) == %{"n" => 5}
+    end
+
+    test "eex_object rejects a value that is not an object" do
+      assert_raise ArgumentError, ~r/not a valid object/, fn ->
+        Template.render(%{eex_object: "[1, 2, 3]"}, bnd(), false)
+      end
+    end
+
+    test "a params map can mix several typed markers" do
+      value = %{
+        msg: %{eex_string: "n=<%= count %>"},
+        n: %{eex_integer: "<%= count %>"},
+        on: %{eex_boolean: "<%= true %>"},
+        tags: %{eex_list: "[\"a\"]"}
+      }
+
+      assert Template.render(value, bnd(), false) == %{
+               msg: "n=5",
+               n: 5,
+               on: true,
+               tags: ["a"]
+             }
+    end
+
+    test "validate accepts the typed markers" do
+      assert :ok =
+               Template.validate(%{
+                 a: %{eex_integer: "<%= count %>"},
+                 b: %{eex_object: "{\"x\": 1}"}
+               })
+    end
   end
 end

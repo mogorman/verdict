@@ -245,5 +245,35 @@ defmodule Verdict.EngineEventTest do
       %RunResult{events: [event]} = Engine.run(engine, %{ok: true}, allow_unsafe_eex: true)
       assert event.params == %{m: "y"}
     end
+
+    test "typed markers render to their Elixir types in the emitted event" do
+      engine =
+        Engine.new()
+        |> Engine.add_fact("name", "Mog")
+        |> TestSupport.add_rule(%{
+          conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
+          event: %{
+            type: "scored",
+            params: %{
+              label: %{eex_string: "<%= name %>"},
+              score: %{eex_integer: "<%= points %>"},
+              ratio: %{eex_float: "<%= points %>"},
+              active: %{eex_boolean: "<%= active %>"},
+              badges: %{eex_list: "[\"gold\"]"}
+            }
+          }
+        })
+
+      %RunResult{events: [event]} =
+        Engine.run(engine, %{ok: true, points: 10, active: true})
+
+      assert event.params == %{
+               label: "Mog",
+               score: 10,
+               ratio: 10.0,
+               active: true,
+               badges: ["gold"]
+             }
+    end
   end
 end

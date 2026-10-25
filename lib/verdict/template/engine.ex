@@ -24,7 +24,8 @@ defmodule Verdict.Template.Engine do
         %{emit: emit} = state,
         "",
         ast = {name, _, _}
-      ) when name in [:if, :case, :cond, :for, :try, :receive] do
+      )
+      when name in [:if, :case, :cond, :for, :try, :receive] do
     %{state | emit: [ast | emit]}
   end
 

@@ -8,14 +8,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [Unreleased]
 
 ### Added
-- **`eex_string` event templates.** An event `params` value shaped
-  `%{eex_string: "…"}` (atom or string key) is rendered as an EEx template at run
-  time and replaced by its string, so the emitted event is a filled-in JSON
-  object. Templates run against the run's facts — a bare variable per fact, a
-  `facts` map, and the `almanac` itself. Only `<%= expr %>` interpolation is
-  allowed by default; control-flow templates need the new `allow_unsafe_eex` option
-  (an engine or per-run option, with a `config :verdict, :allow_unsafe_eex`
-  fallback). Templates are syntax-checked at `add_rule/2`. See `Verdict.Template`.
+- **Typed `eex_*` event templates.** An event `params` value shaped
+  `%{eex_string: "…"}` (atom or string key, the sole key) is an EEx template
+  rendered at run time and coerced to the type named by the key: `eex_string`
+  (string), `eex_integer`, `eex_float`, `eex_number` (int if whole, else float),
+  `eex_boolean`, `eex_list` (JSON → list), and `eex_object` (JSON → map). Templates
+  run against the run's facts — a bare variable per fact, a `facts` map, and the
+  `almanac` itself. Only `<%= expr %>` interpolation is allowed by default;
+  control-flow templates need the new `allow_unsafe_eex` option (an engine or
+  per-run option, with a `config :verdict, :allow_unsafe_eex` fallback). Templates
+  are syntax-checked at `add_rule/2`. See `Verdict.Template`.
 - `mix bench profile` now profiles **every report mode** (`:full`, `:result_only`,
   and `:failures_only`) for each configuration, writing one
   `bench/profile/<config>_<report>.txt` per combination, so per-function hotspots

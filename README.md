@@ -134,10 +134,23 @@ event.params  #=> %{message: "Player has fouled out!"}
 
 ### Events
 
-An event's `params` values may be EEx templates: a value shaped
-`%{eex_string: "…"}` is rendered at run time and replaced by its string, so the
-emitted event is a filled-in JSON object. Templates run against the run's facts —
-a bare variable for each fact, a `facts` map, and the `almanac` itself:
+An event's `params` values may be EEx templates. A value shaped `%{eex_string: "…"}`
+(atom or string key, the sole key) is an EEx template rendered at run time; the key
+names the type the rendered string is coerced to:
+
+| Marker        | Rendered string becomes            |
+| ------------- | ----------------------------------- |
+| `eex_string`  | a string                            |
+| `eex_integer` | an integer (`"10"`)                 |
+| `eex_float`   | a float (`"10"` → `10.0`)           |
+| `eex_number`  | an integer if whole, else a float   |
+| `eex_boolean` | `true` / `false`                    |
+| `eex_list`    | a list, parsed from JSON            |
+| `eex_object`  | a map, parsed from JSON             |
+
+Plain values (anything else) pass through untouched. Every template runs against
+the run's facts — a bare variable for each fact, a `facts` map, and the `almanac`
+itself:
 
 ```elixir
 engine = Verdict.Engine.new() |> Verdict.Engine.add_fact("name", "Mog")
@@ -145,10 +158,12 @@ engine = Verdict.Engine.new() |> Verdict.Engine.add_fact("name", "Mog")
 {:ok, engine, _rule} =
   Verdict.Engine.add_rule(engine, %{
     event: %{
-      type: "greeted",
+      type: "scored",
       params: %{
         message: %{eex_string: "Hello <%= name %>!"},          # bare fact variable
-        meta: %{eex_string: "score=<%= facts[\"score\"] %>"}   # indexed by id
+        meta: %{eex_string: "score=<%= facts[\"score\"] %>"},  # indexed by id
+        score: %{eex_integer: "<%= score %>"},                 # -> integer
+        active: %{eex_boolean: "<%= ok %>"}                    # -> true
       }
     },
     conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]}
@@ -157,13 +172,12 @@ engine = Verdict.Engine.new() |> Verdict.Engine.add_fact("name", "Mog")
 %Verdict.RunResult{events: [%{params: params}]} =
   Verdict.Engine.run(engine, %{ok: true, score: 10})
 
-params  #=> %{message: "Hello Mog!", meta: "score=10"}
+params  #=> %{message: "Hello Mog!", meta: "score=10", score: 10, active: true}
 ```
 
-Plain strings pass through untouched — only the `eex_string` marker becomes a
-template. Only `<%= expr %>` interpolation is allowed by default; a template that
-uses EEx control flow (which may run arbitrary code) needs `allow_unsafe_eex: true`,
-on `new/1` or per run:
+Only `<%= expr %>` interpolation is allowed by default; a template that uses EEx
+control flow (which may run arbitrary code) needs `allow_unsafe_eex: true`, on
+`new/1` or per run:
 
 ```elixir
 engine = Verdict.Engine.new(allow_unsafe_eex: true)

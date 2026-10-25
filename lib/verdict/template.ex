@@ -1,13 +1,21 @@
 defmodule Verdict.Template do
   @moduledoc """
-  Renders `eex_string` markers inside an event's `params`.
+  Renders typed `eex_*` markers inside an event's `params`.
 
-  A `params` value shaped `%{eex_string: "…"}` (or `%{"eex_string" => "…"}`, the sole
-  key) is an EEx template: when the rule's event is rendered, it is evaluated with
-  `EEx` (stdlib) and replaced by its string. Plain strings and every other value pass
-  through untouched, so only the magic marker becomes a template.
+  A `params` value shaped `%{eex_string: "…"}` (atom or string key, the sole key) is
+  an EEx template: when the rule's event is rendered, it is evaluated with `EEx`
+  (stdlib), then coerced to the type named by the key:
 
-  Every template renders against a binding built from the run's almanac:
+    * `eex_string`   – the rendered string
+    * `eex_integer`  – an integer (the rendered string must parse as one)
+    * `eex_float`    – a float (`"5"` → `5.0`)
+    * `eex_number`   – an integer if the string has no `.`, else a float
+    * `eex_boolean`  – `true` / `false`
+    * `eex_list`     – a list, parsed from the rendered string as JSON
+    * `eex_object`   – a map, parsed from the rendered string as JSON
+
+  Plain values (anything other than these markers) pass through untouched. Every
+  template renders against a binding built from the run's almanac:
 
     * `almanac` – the per-run `%Verdict.Almanac{}` struct, so any fact (including
       computed ones) is reachable via
@@ -21,10 +29,22 @@ defmodule Verdict.Template do
   control flow (`<% if %>`, `<% for %>`, `<% … do %>`) is *unsafe* and only renders
   when the run sets `allow_unsafe_eex: true`; otherwise rendering raises. Templates
   are syntax-checked when the rule is created (`Verdict.Engine.add_rule/2`); an
-  ill-formed template is rejected there. EEx runs arbitrary Elixir, so templates
+  ill-formed template is rejected there, and a rendered value that does not match
+  the marker's type raises at render time. EEx runs arbitrary Elixir, so templates
   must only come from trusted rule sources.
   """
   alias Verdict.Almanac
+
+  # The `eex_*` marker keys and the type each coerces its rendered string to.
+  @eex_markers %{
+    "eex_string" => :string,
+    "eex_integer" => :integer,
+    "eex_float" => :float,
+    "eex_number" => :number,
+    "eex_boolean" => :boolean,
+    "eex_list" => :list,
+    "eex_object" => :object
+  }
 
   @doc "Builds the EEx binding for an almanac. Call once per event, not per template."
   @spec binding(Almanac.t()) :: keyword()
@@ -39,21 +59,21 @@ defmodule Verdict.Template do
     Keyword.merge(bare, almanac: almanac, facts: facts)
   end
 
-  @doc "Recursively renders `eex_string` markers in `value`, replacing each with its output."
+  @doc "Recursively renders `eex_*` markers in `value`, replacing each with its coerced value."
   @spec render(term(), keyword(), boolean()) :: term()
   def render(value, binding, allow_unsafe) do
-    cond do
-      is_map(value) and marker?(value) ->
-        render_marker(value, binding, allow_unsafe)
+    case value do
+      map when is_map(map) ->
+        case marker_type(map) do
+          nil -> Map.new(map, fn {k, v} -> {k, render(v, binding, allow_unsafe)} end)
+          type -> render_typed(map, type, binding, allow_unsafe)
+        end
 
-      is_map(value) ->
-        Map.new(value, fn {k, v} -> {k, render(v, binding, allow_unsafe)} end)
+      list when is_list(list) ->
+        Enum.map(list, &render(&1, binding, allow_unsafe))
 
-      is_list(value) ->
-        Enum.map(value, &render(&1, binding, allow_unsafe))
-
-      true ->
-        value
+      other ->
+        other
     end
   end
 
@@ -71,47 +91,128 @@ defmodule Verdict.Template do
 
   # Collects template-syntax errors in a flat list.
   defp walk(value) do
-    cond do
-      is_map(value) and marker?(value) ->
-        syntax_errors(template_of(value))
+    case value do
+      map when is_map(map) ->
+        case marker_type(map) do
+          nil -> Map.values(map) |> Enum.flat_map(&walk/1)
+          _type -> syntax_errors(template_of(map))
+        end
 
-      is_map(value) ->
-        Map.values(value) |> Enum.flat_map(&walk/1)
+      list when is_list(list) ->
+        Enum.flat_map(list, &walk/1)
 
-      is_list(value) ->
-        Enum.flat_map(value, &walk/1)
-
-      true ->
+      _ ->
         []
     end
   end
 
-  # A value is an `eex_string` marker when it is a single-key map whose key is
-  # `eex_string` (atom or string) and whose value is a binary.
-  defp marker?(value) do
-    is_map(value) and
-      map_size(value) == 1 and
-      (is_binary(Map.get(value, :eex_string)) or is_binary(Map.get(value, "eex_string")))
+  # Returns the target type for an `eex_*` marker map (a single-key map with a binary
+  # value), or `nil` if it is not a marker.
+  defp marker_type(%{} = map) when map_size(map) == 1 do
+    [{key, value}] = Map.to_list(map)
+    if is_binary(value), do: Map.get(@eex_markers, to_string(key))
   end
 
-  defp template_of(map), do: Map.get(map, :eex_string) || Map.get(map, "eex_string")
+  defp marker_type(_), do: nil
 
-  defp render_marker(map, binding, allow_unsafe) do
-    template = template_of(map)
+  # The template string of a single-key marker map.
+  defp template_of(%{} = map) when map_size(map) == 1 do
+    [{_key, template}] = Map.to_list(map)
+    template
+  end
 
+  defp render_typed(map, type, binding, allow_unsafe) do
+    rendered(template_of(map), binding, allow_unsafe)
+    |> then(fn value -> coerce(type, value) end)
+  end
+
+  # Renders `template` to a string: enforce the safe/unsafe gate, then evaluate the
+  # cached compiled AST with the run's binding. The capturing engine accumulates text,
+  # interpolations, and control-flow block results into one iodata value (the default
+  # EEx engine drops block output).
+  defp rendered(template, binding, allow_unsafe) do
     unless safe?(template) or allow_unsafe do
       raise ArgumentError,
             "event template #{inspect(template)} uses EEx control flow; " <>
               "set allow_unsafe_eex: true to permit it"
     end
 
-    # Evaluate the cached compiled AST with the run's binding. The capturing engine
-    # accumulates text, interpolations, and control-flow block results into one
-    # iodata value (the default EEx engine drops block output).
     compiled(template)
     |> Code.eval_quoted(binding)
     |> elem(0)
     |> IO.iodata_to_binary()
+  end
+
+  # Coerces a rendered template string to the marker's type.
+  defp coerce(:string, value), do: value
+  defp coerce(:integer, value), do: parse_integer!(value)
+  defp coerce(:float, value), do: parse_float!(value)
+  defp coerce(:number, value), do: parse_number!(value)
+  defp coerce(:boolean, value), do: parse_boolean!(value)
+  defp coerce(:list, value), do: parse_json!(value, "list", &is_list/1)
+  defp coerce(:object, value), do: parse_json!(value, "object", &is_map/1)
+
+  defp parse_integer!(value) do
+    case Integer.parse(value) do
+      {int, ""} ->
+        int
+
+      _ ->
+        raise ArgumentError,
+              "event integer template rendered #{inspect(value)}, which is not an integer"
+    end
+  end
+
+  defp parse_float!(value) do
+    case Float.parse(value) do
+      {float, ""} ->
+        float
+
+      _ ->
+        raise ArgumentError,
+              "event float template rendered #{inspect(value)}, which is not a float"
+    end
+  end
+
+  defp parse_number!(value) do
+    case Integer.parse(value) do
+      {int, ""} -> int
+      _ -> parse_float!(value)
+    end
+  end
+
+  defp parse_boolean!(value) do
+    case value do
+      "true" ->
+        true
+
+      "false" ->
+        false
+
+      _ ->
+        raise ArgumentError,
+              "event boolean template rendered #{inspect(value)}, which is not a boolean"
+    end
+  end
+
+  # Parses the rendered string as JSON and confirms it has the shape the marker names.
+  defp parse_json!(value, kind, shape?) do
+    result =
+      try do
+        :json.decode(value)
+      rescue
+        e ->
+          raise ArgumentError,
+                "event #{kind} template rendered #{inspect(value)}, which is not valid JSON: " <>
+                  Exception.message(e)
+      end
+
+    unless shape?.(result) do
+      raise ArgumentError,
+            "event #{kind} template rendered #{inspect(value)}, which is not a valid #{kind}"
+    end
+
+    result
   end
 
   # Compiles `template` with the capturing engine and caches the quoted AST in the
@@ -127,7 +228,7 @@ defmodule Verdict.Template do
         ast
 
       :error ->
-        ast = EEx.compile_string(template, [engine: Verdict.Template.Engine])
+        ast = EEx.compile_string(template, engine: Verdict.Template.Engine)
         Process.put(key, Map.put(cache, template, ast))
         ast
     end
