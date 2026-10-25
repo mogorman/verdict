@@ -275,5 +275,27 @@ defmodule Verdict.EngineEventTest do
                badges: ["gold"]
              }
     end
+
+    test "failure events are rendered like success events when the rule is false" do
+      collected = TestSupport.start_collector()
+
+      engine =
+        Engine.new()
+        |> Engine.add_fact("name", "Mog")
+        |> TestSupport.add_rule(%{
+          conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
+          event: %{type: "greeted", params: %{message: %{eex_string: "Hello <%= name %>!"}}}
+        })
+        |> Engine.on("failure", fn event, _a, _rr ->
+          TestSupport.collect(collected, event)
+        end)
+
+      %RunResult{events: [], failure_events: [event]} = Engine.run(engine, %{ok: false})
+
+      # the failure event is rendered exactly like a success event would be
+      assert event.params == %{message: "Hello Mog!"}
+      assert [rendered] = TestSupport.collected(collected)
+      assert rendered.params == %{message: "Hello Mog!"}
+    end
   end
 end
