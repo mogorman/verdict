@@ -28,6 +28,7 @@ defmodule Verdict.Rule do
     field(:priority, :integer, default: 1)
     field(:extra, :map, default: %{})
     embeds_one(:event, Event)
+    embeds_one(:failure_event, Event)
     field(:conditions, Types.Condition)
     timestamps()
   end
@@ -36,9 +37,10 @@ defmodule Verdict.Rule do
           id: String.t() | nil,
           name: String.t() | nil,
           priority: integer(),
-          extra: map(),
-          event: Event.t() | nil,
-          conditions: Condition.t() | nil,
+           extra: map(),
+           event: Event.t() | nil,
+           failure_event: Event.t() | nil,
+           conditions: Condition.t() | nil,
           inserted_at: NaiveDateTime.t() | nil,
           updated_at: NaiveDateTime.t() | nil
         }
@@ -55,7 +57,8 @@ defmodule Verdict.Rule do
   def changeset(%__MODULE__{} = rule, attrs) do
     rule
     |> cast(attrs, [:name, :priority, :extra, :conditions])
-    |> put_event(attrs)
+    |> cast_event_embed(:event, attrs)
+    |> cast_event_embed(:failure_event, attrs)
     |> validate_required([:event, :conditions])
     |> validate_number(:priority, greater_than: 0)
     |> validate_change(:conditions, &validate_conditions_tree/2)
@@ -81,9 +84,13 @@ defmodule Verdict.Rule do
     }
 
     base
+    |> add_failure_event(rule.failure_event)
     |> put_priority(rule.priority)
     |> put_extra(rule.extra)
   end
+
+  defp add_failure_event(map, nil), do: map
+  defp add_failure_event(map, event), do: Map.put(map, "failure_event", Event.to_map(event))
 
   defp put_priority(map, nil), do: map
   defp put_priority(map, 1), do: map
@@ -101,18 +108,19 @@ defmodule Verdict.Rule do
     end
   end
 
-  # Casts the event from `attrs` and sets it wholesale via `put_embed/3`, which
-  # sidesteps `cast_embed`'s id matching — the `event` embed has no id, so
-  # `cast_embed` raises when updating a rule that already has one. The event is
-  # validated by `Event.changeset/2` and its errors merged into the rule.
-  defp put_event(changeset, attrs) do
-    case Map.get(attrs, :event) || Map.get(attrs, "event") do
+  # Casts an optional embedded event (`:event` or `:failure_event`) from `attrs`
+  # and sets it wholesale via `put_embed/3`, which sidesteps `cast_embed`'s id
+  # matching — the event embed has no id, so `cast_embed` raises when updating a
+  # rule that already has one. An omitted (`nil`) event leaves the changeset
+  # untouched; a present one is validated by `Event.changeset/2`.
+  defp cast_event_embed(changeset, field, attrs) do
+    case Map.get(attrs, field) || Map.get(attrs, to_string(field)) do
       nil ->
         changeset
 
       event_attrs ->
-        event = Event.changeset(changeset.data.event || %Event{}, event_attrs(event_attrs))
-        put_embed(changeset, :event, event)
+        current = Map.get(changeset.data, field) || %Event{}
+        put_embed(changeset, field, Event.changeset(current, event_attrs(event_attrs)))
     end
   end
 

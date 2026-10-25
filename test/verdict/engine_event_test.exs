@@ -298,4 +298,22 @@ defmodule Verdict.EngineEventTest do
       assert rendered.params == %{message: "Hello Mog!"}
     end
   end
+
+  test "a rule's failure_event replaces its success event in failure results when it does not fire" do
+    engine =
+      Engine.new()
+      |> TestSupport.add_rule(%{
+        conditions: %{any: [%{fact: "age", operator: "greaterThanInclusive", value: 21}]},
+        event: %{type: "success-type"},
+        failure_event: %{type: "failure-type", params: %{why: "too young"}},
+        priority: 1
+      })
+
+    %RunResult{events: [], failure_events: [fe], results: [rr]} = Engine.run(engine, %{age: 10})
+
+    assert fe.type == "failure-type"
+    assert fe.params == %{why: "too young"}
+    assert Verdict.RuleResult.to_map(rr)["failure_event"] ==
+             %{"type" => "failure-type", "params" => %{why: "too young"}}
+  end
 end

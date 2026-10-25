@@ -211,12 +211,23 @@ defmodule Verdict.Evaluator do
       |> render_event_params(context)
       |> maybe_resolve_facts(replace_facts, context)
 
+    failure_event =
+      rule.failure_event
+      |> render_event_params(context)
+      |> maybe_resolve_facts(replace_facts, context)
+
     case Evaluation.eval(rule.conditions, context) do
       passed? when is_boolean(passed?) ->
-        %RuleResult{rule: rule, changeset: nil, event: event, valid?: passed?}
+        %RuleResult{rule: rule, changeset: nil, event: event, failure_event: failure_event, valid?: passed?}
 
       changeset ->
-        %RuleResult{rule: rule, changeset: changeset, event: event, valid?: changeset.valid?}
+        %RuleResult{
+          rule: rule,
+          changeset: changeset,
+          event: event,
+          failure_event: failure_event,
+          valid?: changeset.valid?
+        }
     end
   end
 
@@ -271,7 +282,9 @@ defmodule Verdict.Evaluator do
 
     %RunResult{
       events: Enum.map(valid, & &1.event),
-      failure_events: Enum.map(invalid, & &1.event),
+      # A failed rule reports its declared failure event when it has one,
+      # otherwise its (unfired) success event, preserving the prior behaviour.
+      failure_events: Enum.map(invalid, fn rr -> rr.failure_event || rr.event end),
       results: results
     }
   end

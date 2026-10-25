@@ -14,12 +14,13 @@ defmodule Verdict.RuleResult do
   """
   alias Verdict.{Event, Rule}
 
-  defstruct [:rule, :changeset, :event, valid?: false]
+  defstruct [:rule, :changeset, :event, :failure_event, valid?: false]
 
   @type t :: %__MODULE__{
           rule: Rule.t(),
           changeset: Ecto.Changeset.t(),
           event: Event.t(),
+          failure_event: Event.t() | nil,
           valid?: boolean()
         }
 
@@ -48,7 +49,12 @@ defmodule Verdict.RuleResult do
       "event" => Event.to_map(rule_result.event),
       "conditions" => conditions_map(rule_result.changeset)
     }
+    |> put_failure_event(rule_result.failure_event)
   end
+
+  # Omitted when the rule declares no failure event, mirroring `Verdict.Rule.to_map/1`.
+  defp put_failure_event(map, nil), do: map
+  defp put_failure_event(map, event), do: Map.put(map, "failure_event", Event.to_map(event))
 
   # A `:result_only` run builds no report, so `changeset` is `nil` and the
   # `conditions` key is `nil` too.

@@ -3,7 +3,7 @@ defmodule Verdict.TestSupport do
 
   @doc "Builds a rule attribute map with defaults, mirroring the JS rule factory."
   def rule(attrs \\ %{}) do
-    %{
+    base = %{
       name: Map.get(attrs, :name, "test-rule"),
       priority: Map.get(attrs, :priority, 1),
       event:
@@ -19,6 +19,10 @@ defmodule Verdict.TestSupport do
         ),
       extra: Map.get(attrs, :extra, %{})
     }
+
+    if failure_event = Map.get(attrs, :failure_event),
+      do: Map.put(base, :failure_event, failure_event),
+      else: base
   end
 
   @doc "Adds a rule and returns the updated engine."
