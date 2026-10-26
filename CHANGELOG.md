@@ -14,10 +14,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   (string), `eex_integer`, `eex_float`, `eex_number` (int if whole, else float),
   `eex_boolean`, `eex_list` (JSON → list), and `eex_object` (JSON → map). Templates
   run against the run's facts — a bare variable per fact, a `facts` map, and the
-  `almanac` itself. Only `<%= expr %>` interpolation is allowed by default;
-  control-flow templates need the new `allow_unsafe_eex` option (an engine or
-  per-run option, with a `config :verdict, :allow_unsafe_eex` fallback). Templates
-  are syntax-checked at `add_rule/2`. See `Verdict.Template`.
+   `almanac` itself. Templates are sandboxed: only a whitelist of modules may be
+   called (default: `Enum`, `Map`, `Integer`, `Float`, `String`, `Regex`, `Tuple`,
+   `Date`, `Time`, `NaiveDateTime`, `DateTime`, `Keyword`, `MapSet`, `Stream`,
+    `Range`, `List`, the OTP `:math` and `:json` modules, and the Elixir `JSON`
+    wrapper), plus math operators/functions,
+   anonymous functions, and control flow; other modules and Erlang primitives are
+   rejected. Extend via `config :verdict, :eex_whitelist` or the `:eex_whitelist`
+   engine option; `allow_unsafe_eex` (engine or per-run, with a `config :verdict`
+   fallback) disables the sandbox for trusted sources. Templates are syntax-checked
+   at `add_rule/2`. See `Verdict.Template`.
 - `mix bench profile` now profiles **every report mode** (`:full`, `:result_only`,
   and `:failures_only`) for each configuration, writing one
   `bench/profile/<config>_<report>.txt` per combination, so per-function hotspots

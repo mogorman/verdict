@@ -25,13 +25,23 @@ defmodule Verdict.Template do
     * a bare variable for each constant fact whose id is a valid Elixir identifier,
       for `<%= name %>`.
 
-  Only `<%= expr %>` interpolation is allowed by default. A template using EEx
-  control flow (`<% if %>`, `<% for %>`, `<% … do %>`) is *unsafe* and only renders
-  when the run sets `allow_unsafe_eex: true`; otherwise rendering raises. Templates
-  are syntax-checked when the rule is created (`Verdict.Engine.add_rule/2`); an
-  ill-formed template is rejected there, and a rendered value that does not match
-  the marker's type raises at render time. EEx runs arbitrary Elixir, so templates
-  must only come from trusted rule sources.
+  Templates are sandboxed. Only functions from a whitelist of modules may be called.
+  The default set is `Enum`, `Map`, `Integer`, `Float`, `String`, `Regex`, `Tuple`,
+  `Date`, `Time`, `NaiveDateTime`, `DateTime`, `Keyword`, `MapSet`, `Stream`, `Range`,
+  `List`, the OTP `:math` and `:json` modules, and the Elixir `JSON` wrapper; extend
+  it with
+  `config :verdict, :eex_whitelist`
+  or the `:eex_whitelist` engine option. Math operators (`+`, `-`, …), a few math
+  functions (`abs`, `min`, `max`, `round`, `truncate`), anonymous functions, control
+  flow (`<% if %>`, `<% for %>`, `<% … do %>`), literals, and the run's fact variables
+  are always allowed. Anything else — other modules, Erlang primitives such as
+  `:os.cmd/1`, and non-math Kernel functions — is rejected when the rule is created
+  (`Verdict.Engine.add_rule/2`) and again at render time. `allow_unsafe_eex` (engine or
+  per-run) disables the sandbox for trusted rule sources. `String` and `Access` are
+  always permitted because the template mechanism itself depends on them. Templates
+  are syntax-checked at rule creation; an ill-formed or non-whitelisted template is
+  rejected there, and a rendered value that does not match the marker's type raises at
+  render time.
   """
   alias Verdict.Almanac
 
@@ -41,9 +51,82 @@ defmodule Verdict.Template do
   # The `eex_*` marker keys and the type each coerces its rendered string to.
   @eex_markers Map.new(Enum.map(@eex_marker_types, fn type -> {"eex_#{type}", type} end))
 
+  # Modules always permitted regardless of config: the template mechanism depends on
+  # them (the String.Chars.to_string/1 wrapper on every interpolation, and Access.get/2
+  # for bracket access such as facts["name"]).
+  @required_modules [:Access, :String]
+
+  # The default user-configurable whitelist (extend via config :verdict,
+  # :eex_whitelist or the :eex_whitelist engine option). The OTP :json and :math
+  # modules and the Elixir JSON wrapper are included for JSON and math handling;
+  # any other module is rejected.
+  @default_whitelist [
+    :Enum,
+    :Map,
+    :Integer,
+    :Float,
+    :String,
+    :Regex,
+    :Tuple,
+    :Date,
+    :Time,
+    :NaiveDateTime,
+    :DateTime,
+    :Keyword,
+    :MapSet,
+    :Stream,
+    :Range,
+    :List,
+    :json,
+    :JSON,
+    :math
+  ]
+
+  # Arithmetic / comparison / boolean operators, always allowed in a template.
+  @operators [
+    :+,
+    :-,
+    :*,
+    :/,
+    :div,
+    :rem,
+    :band,
+    :bor,
+    :bxor,
+    :bsl,
+    :bsr,
+    :==,
+    :!=,
+    :===,
+    :!==,
+    :<,
+    :>,
+    :<=,
+    :>=,
+    :++,
+    :--,
+    :and,
+    :or,
+    :not,
+    :in,
+    :=~,
+    :|,
+    :|>
+  ]
+
+  # Bare Kernel math functions (not operators), allowed by name.
+  @kernel_math [:abs, :min, :max, :round, :truncate]
+
+  # Structural keywords (control flow, blocks, fn clauses) — not function calls.
+  @structural [:if, :case, :cond, :for, :try, :receive, :__block__, :->, :when, :__struct__]
+
   @doc "The typed `eex_*` event-template marker types, in editor order."
   @spec marker_types() :: [atom()]
   def marker_types, do: @eex_marker_types
+
+  @doc "The default `:eex_whitelist` modules (see the moduledoc)."
+  @spec default_whitelist() :: [atom()]
+  def default_whitelist, do: @default_whitelist
 
   @doc "Builds the EEx binding for an almanac. Call once per event, not per template."
   @spec binding(Almanac.t()) :: keyword()
@@ -59,17 +142,17 @@ defmodule Verdict.Template do
   end
 
   @doc "Recursively renders `eex_*` markers in `value`, replacing each with its coerced value."
-  @spec render(term(), keyword(), boolean()) :: term()
-  def render(value, binding, allow_unsafe) do
+  @spec render(term(), keyword(), boolean(), [atom()]) :: term()
+  def render(value, binding, allow_unsafe, whitelist \\ default_whitelist()) do
     case value do
       map when is_map(map) ->
         case marker_type(map) do
-          nil -> Map.new(map, fn {k, v} -> {k, render(v, binding, allow_unsafe)} end)
-          type -> render_typed(map, type, binding, allow_unsafe)
+          nil -> Map.new(map, fn {k, v} -> {k, render(v, binding, allow_unsafe, whitelist)} end)
+          type -> render_typed(map, type, binding, allow_unsafe, whitelist)
         end
 
       list when is_list(list) ->
-        Enum.map(list, &render(&1, binding, allow_unsafe))
+        Enum.map(list, &render(&1, binding, allow_unsafe, whitelist))
 
       other ->
         other
@@ -77,28 +160,29 @@ defmodule Verdict.Template do
   end
 
   @doc """
-  Recursively syntax-checks every `eex_string` marker in `value`.
+  Recursively checks every `eex_*` marker in `value` for valid EEx syntax and
+  whitelist compliance.
 
-  Returns `:ok` or `{:error, [message]}`. Checks compilation only; the
-  safe/unsafe control-flow gate is enforced at render time.
+  Returns `:ok` or `{:error, [message]}`.
   """
-  @spec validate(term()) :: :ok | {:error, [String.t()]}
-  def validate(value) do
-    errors = walk(value)
+  @spec validate(term(), [atom()], boolean()) :: :ok | {:error, [String.t()]}
+  def validate(value, whitelist \\ default_whitelist(), allow_unsafe \\ false) do
+    errors = walk(value, whitelist, allow_unsafe)
     if errors == [], do: :ok, else: {:error, errors}
   end
 
-  # Collects template-syntax errors in a flat list.
-  defp walk(value) do
+  # Collects syntax and whitelist errors in a flat list. `allow_unsafe` skips the
+  # whitelist guard (syntax only), for trusted-source engines.
+  defp walk(value, whitelist, allow_unsafe) do
     case value do
       map when is_map(map) ->
         case marker_type(map) do
-          nil -> Map.values(map) |> Enum.flat_map(&walk/1)
-          _type -> syntax_errors(template_of(map))
+          nil -> Map.values(map) |> Enum.flat_map(&walk(&1, whitelist, allow_unsafe))
+          _type -> template_errors(template_of(map), whitelist, allow_unsafe)
         end
 
       list when is_list(list) ->
-        Enum.flat_map(list, &walk/1)
+        Enum.flat_map(list, &walk(&1, whitelist, allow_unsafe))
 
       _ ->
         []
@@ -120,27 +204,130 @@ defmodule Verdict.Template do
     template
   end
 
-  defp render_typed(map, type, binding, allow_unsafe) do
-    rendered(template_of(map), binding, allow_unsafe)
+  defp render_typed(map, type, binding, allow_unsafe, whitelist) do
+    rendered(template_of(map), binding, allow_unsafe, whitelist)
     |> then(fn value -> coerce(type, value) end)
   end
 
-  # Renders `template` to a string: enforce the safe/unsafe gate, then evaluate the
-  # cached compiled AST with the run's binding. The capturing engine accumulates text,
-  # interpolations, and control-flow block results into one iodata value (the default
-  # EEx engine drops block output).
-  defp rendered(template, binding, allow_unsafe) do
-    unless safe?(template) or allow_unsafe do
-      raise ArgumentError,
-            "event template #{inspect(template)} uses EEx control flow; " <>
-              "set allow_unsafe_eex: true to permit it"
-    end
+  # Renders `template` to a string: guard the cached compiled AST against the
+  # whitelist (unless `allow_unsafe` bypasses the sandbox), then evaluate it with the
+  # run's binding. The capturing engine accumulates text, interpolations, and
+  # control-flow block results into one iodata value (the default EEx engine drops
+  # block output).
+  defp rendered(template, binding, allow_unsafe, whitelist) do
+    ast = compiled(template)
 
-    compiled(template)
+    if allow_unsafe do
+      eval(ast, binding)
+    else
+      case guard(ast, whitelist) do
+        :ok -> eval(ast, binding)
+        {:error, reason} -> raise ArgumentError, "event template #{inspect(template)}: #{reason}"
+      end
+    end
+  end
+
+  defp eval(ast, binding) do
+    ast
     |> Code.eval_quoted(binding)
     |> elem(0)
     |> IO.iodata_to_binary()
   end
+
+  # Checks a compiled template AST against `whitelist`. Returns `:ok` or
+  # `{:error, message}`. Only whitelisted module functions (plus `@required_modules`)
+  # may be called; operators, math functions, anonymous functions, control flow,
+  # literals and variables are allowed; anything else is rejected.
+  @spec guard(term(), [atom()]) :: :ok | {:error, String.t()}
+  def guard(ast, whitelist) do
+    allowed = MapSet.new(@required_modules ++ whitelist)
+
+    try do
+      _ =
+        Macro.prewalk(ast, fn node ->
+          case guard_node(node, allowed) do
+            :ok -> node
+            {:error, reason} -> throw({:blocked, reason})
+          end
+        end)
+
+      :ok
+    catch
+      {:blocked, reason} -> {:error, reason}
+    end
+  end
+
+  # Classifies a single AST node: `:ok` to allow (and recurse) or `{:error, _}` to block.
+  defp guard_node(node, allowed) do
+    case node do
+      # Remote call: an Elixir alias or an Erlang/resolved module reference.
+      {{:., _, module_part}, _, _} ->
+        case module_head(module_part) do
+          nil ->
+            {:error, "uses unsupported call syntax"}
+
+          mod ->
+            if mod in allowed do
+              :ok
+            else
+              {:error, "module #{inspect(mod)} is not in the allowed EEx whitelist"}
+            end
+        end
+
+      # An operator or an anonymous function: always fine.
+      {name, _, _} when is_atom(name) and (name in @operators or name == :fn) ->
+        :ok
+
+      # The `.` qualifier and the module reference inside a call are data, not calls;
+      # a bare variable is likewise fine.
+      {:., _, _} ->
+        :ok
+
+      {:__aliases__, _, _} ->
+        :ok
+
+      {name, _, nil} when is_atom(name) ->
+        :ok
+
+      # A structural keyword (if/case/for/…) or a bare Kernel function call. EEx
+      # compiles calls with only line/column metadata, so a call is any atom-headed
+      # node with a list of arguments that is neither a keyword nor a math function.
+      {name, _, args} when is_atom(name) and is_list(args) ->
+        if name in @structural or name in @kernel_math do
+          :ok
+        else
+          {:error, "function #{inspect(name)} is not allowed in an EEx template"}
+        end
+
+      # Literals and anything else: allow.
+      _ ->
+        :ok
+    end
+  end
+
+  # The top-level module of a remote-call target, whose form is `[module_ref, fun]`.
+  # `module_ref` may be an alias (`{:__aliases__, _, [Mod, …]}`) or a module atom that
+  # may be fully qualified (`:"Elixir.String.Chars"`). Both normalize to the head
+  # module (`:String`); an Erlang module stays its lowercase atom (`:os`).
+  defp module_head([module_ref | _]) do
+    case module_ref do
+      {:__aliases__, _, [head | _]} ->
+        head
+
+      atom when is_atom(atom) ->
+        atom
+        |> Atom.to_string()
+        |> String.replace_prefix("Elixir.", "")
+        |> String.split(".")
+        |> hd()
+        |> String.to_atom()
+
+      _ ->
+        nil
+    end
+  end
+
+  defp module_head(_), do: nil
 
   # Coerces a rendered template string to the marker's type.
   defp coerce(:string, value), do: value
@@ -227,27 +414,38 @@ defmodule Verdict.Template do
         ast
 
       :error ->
-        ast = EEx.compile_string(template, engine: Verdict.Template.Engine)
+        ast = compile!(template)
         Process.put(key, Map.put(cache, template, ast))
         ast
     end
   end
 
-  # "Safe" means interpolation-only: after stripping every `<%= … %>` tag, no `<%`
-  # may remain. Anything else (control flow, `do` blocks, comments, or a `%` inside
-  # an interpolation) requires `allow_unsafe_eex`.
-  defp safe?(template) do
-    not String.contains?(String.replace(template, ~r/<%= [^%]*? %>/, ""), "<%")
+  # Compiles `template` with the capturing engine, raising on invalid EEx.
+  defp compile!(template) do
+    EEx.compile_string(template, engine: Verdict.Template.Engine)
   end
 
-  defp syntax_errors(template) when is_binary(template) do
+  # Syntax-checks a template and, if valid and `allow_unsafe` is false, guards its
+  # compiled AST against the whitelist. Returns a (possibly empty) list of errors.
+  defp template_errors(template, whitelist, allow_unsafe) when is_binary(template) do
     try do
-      _ = EEx.compile_string(template, [])
-      []
+      ast = compile!(template)
+
+      if allow_unsafe do
+        []
+      else
+        case guard(ast, whitelist) do
+          :ok ->
+            []
+
+          {:error, reason} ->
+            ["event template #{inspect(template)}: #{reason}"]
+        end
+      end
     rescue
       e -> ["event template #{inspect(template)} is not valid EEx: #{Exception.message(e)}"]
     end
   end
 
-  defp syntax_errors(_), do: []
+  defp template_errors(_template, _whitelist, _allow_unsafe), do: []
 end

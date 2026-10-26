@@ -30,9 +30,11 @@ defmodule Verdict.EvaluationContext do
      is used;
     * `allow_undefined_conditions` – when `false` (default) an unregistered
       condition reference raises; when `true` it evaluates to false;
-    * `allow_unsafe_eex` – when `false` (default) an event `eex_string` template
-      that uses EEx control flow raises at render time; when `true` such
-      templates are permitted (see `Verdict.Template`);
+    * `allow_unsafe_eex` – when `true`, an event `eex_string` template bypasses
+      the `eex_whitelist` guard and may run arbitrary EEx (trusted sources only);
+      when `false` (default) the whitelist is enforced at render time;
+    * `eex_whitelist` – the modules whose functions an event `eex_string`
+      template may call (see `Verdict.Template`);
    * `strict` – when `true`, disables short-circuiting of `all`/`any`;
    * `report` – how much of the per-condition report to build: `:full`
      (default) builds the full changeset; `:result_only` returns just the
@@ -56,6 +58,7 @@ defmodule Verdict.EvaluationContext do
             path_resolver: nil,
             allow_undefined_conditions: false,
             allow_unsafe_eex: false,
+            eex_whitelist: [],
             strict: false,
             report: :full,
             log: nil
@@ -71,6 +74,7 @@ defmodule Verdict.EvaluationContext do
           path_resolver: (term(), String.t() -> term()) | nil,
           allow_undefined_conditions: boolean(),
           allow_unsafe_eex: boolean(),
+          eex_whitelist: [atom()],
           strict: boolean(),
           report: report(),
           log: atom() | nil

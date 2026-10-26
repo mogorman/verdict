@@ -176,14 +176,17 @@ engine = Verdict.Engine.new() |> Verdict.Engine.add_fact("name", "Mog")
 params  #=> %{message: "Hello Mog!", meta: "score=10", score: 10, active: true}
 ```
 
-Only `<%= expr %>` interpolation is allowed by default; a template that uses EEx
-control flow (which may run arbitrary code) needs `allow_unsafe_eex: true`, on
-`new/1` or per run:
-
-```elixir
-engine = Verdict.Engine.new(allow_unsafe_eex: true)
-# params: %{note: %{eex_string: "<%= if n do %>yes<% end %>"}}
-```
+Templates are sandboxed: only functions from a whitelist of modules may be called
+(`Enum`, `Map`, `Integer`, `Float`, `String`, `Regex`, `Tuple`, `Date`, `Time`,
+`NaiveDateTime`, `DateTime`, `Keyword`, `MapSet`, `Stream`, `Range`, `List`, the OTP
+`:math` and `:json` modules, and the Elixir `JSON` wrapper). Math operators, a few
+math functions (`abs`, `min`, `max`, `round`, `truncate`), anonymous functions,
+control flow (`<% if %>`, `<% for %>`, …),
+literals, and the run's fact variables are always allowed; other modules, Erlang
+primitives (`:os.cmd/1`), and non-math Kernel functions are rejected at `add_rule/2`
+and render time. Extend the list with `config :verdict, :eex_whitelist, […]` or the
+`:eex_whitelist` engine option. `allow_unsafe_eex` (on `new/1` or per run) disables
+the sandbox for trusted rule sources.
 
 ### Facts
 

@@ -146,13 +146,18 @@ defmodule Verdict.Engine do
         top-level event `params` value that is a fact reference (`%{fact: …}`,
         optionally with `params` / `path`) is resolved to its computed value
         before the event is emitted.
+      * `:eex_whitelist` – default `Verdict.Template.default_whitelist/0` (falling
+        back to the application config `config :verdict, :eex_whitelist, list`). The
+        modules whose functions an event `eex_string` template (see
+        `Verdict.Template`) may call. Math operators, a few math functions
+        (`abs`, `min`, `max`, `round`, `truncate`), anonymous functions, control
+        flow, literals, and the run's fact variables are always allowed; `String`
+        and `Access` are always permitted.
       * `:allow_unsafe_eex` – default `false` (falling back to the application
-        config `config :verdict, :allow_unsafe_eex, value`). An event `params`
-        value shaped `%{eex_string: "…"}` is rendered as an EEx template at run
-        time (see `Verdict.Template`). When `true`, such a template may use EEx
-        control flow (`<% if %>`, `<% for %>`, `<% … do %>`); when `false` only
-        `<%= expr %>` interpolation is allowed and a control-flow template
-        raises.
+        config `config :verdict, :allow_unsafe_eex, value`). When `true`, an event
+        `eex_string` template bypasses the `:eex_whitelist` guard and may run
+        arbitrary EEx — for trusted rule sources only. When `false` (default) the
+        whitelist is enforced at `add_rule/2` and at render time.
       * `:log` – a logging threshold: `nil` (default, off), `:debug`, `:info`,
       `:warning`, or `:error`. When set, each step of a run is emitted via
       `Logger`. Falls back to the application config
@@ -180,6 +185,12 @@ defmodule Verdict.Engine do
             opts,
             :allow_unsafe_eex,
             Application.get_env(:verdict, :allow_unsafe_eex, false)
+          ),
+        eex_whitelist:
+          Keyword.get(
+            opts,
+            :eex_whitelist,
+            Application.get_env(:verdict, :eex_whitelist, Template.default_whitelist())
           )
       ] ++ log_option(opts)
 
@@ -254,7 +265,7 @@ defmodule Verdict.Engine do
       %Ecto.Changeset{valid?: true} = changeset ->
         rule = Ecto.Changeset.apply_changes(changeset)
 
-        case template_errors(rule) do
+        case template_errors(engine, rule) do
           [] ->
             {store, rule} = engine.store_module.add_rule(engine.store, rule)
             {:ok, %{engine | store: store}, rule}
@@ -273,18 +284,22 @@ defmodule Verdict.Engine do
     end
   end
 
-  # Syntax-checks every `eex_*` template in the rule's declared events
-  # (`:event` and `:failure_event`); returns `[{field, message}]` errors.
-  @spec template_errors(Rule.t()) :: [{atom(), String.t()}]
-  defp template_errors(%Rule{} = rule) do
-    template_errors([], :event, rule.event)
-    |> then(&template_errors(&1, :failure_event, rule.failure_event))
+  # Checks every `eex_*` template in the rule's declared events (`:event` and
+  # `:failure_event`) for valid EEx and whitelist compliance; returns
+  # `[{field, message}]` errors.
+  @spec template_errors(t(), Rule.t()) :: [{atom(), String.t()}]
+  defp template_errors(%__MODULE__{} = engine, %Rule{} = rule) do
+    whitelist = Keyword.get(engine.options, :eex_whitelist, Template.default_whitelist())
+    allow_unsafe = Keyword.get(engine.options, :allow_unsafe_eex, false)
+
+    template_errors(whitelist, allow_unsafe, [], :event, rule.event)
+    |> then(&template_errors(whitelist, allow_unsafe, &1, :failure_event, rule.failure_event))
   end
 
-  defp template_errors(errors, _field, nil), do: errors
+  defp template_errors(_whitelist, _allow_unsafe, errors, _field, nil), do: errors
 
-  defp template_errors(errors, field, event) do
-    case Template.validate(event.params) do
+  defp template_errors(whitelist, allow_unsafe, errors, field, event) do
+    case Template.validate(event.params, whitelist, allow_unsafe) do
       :ok -> errors
       {:error, messages} -> errors ++ Enum.map(messages, &{field, &1})
     end

@@ -38,11 +38,11 @@ defmodule Verdict.Rule do
           id: String.t() | nil,
           name: String.t() | nil,
           priority: integer(),
-           extra: map(),
-           event: Event.t() | nil,
-           failure_event: Event.t() | nil,
-           conditions: Condition.t() | nil,
-           sample_facts: map() | nil,
+          extra: map(),
+          event: Event.t() | nil,
+          failure_event: Event.t() | nil,
+          conditions: Condition.t() | nil,
+          sample_facts: map() | nil,
           inserted_at: NaiveDateTime.t() | nil,
           updated_at: NaiveDateTime.t() | nil
         }
@@ -103,7 +103,10 @@ defmodule Verdict.Rule do
   # `sample_facts` is optional authoring metadata; omitted when absent or empty so
   # it stays out of the rule's JSON (and the `to_map` ↔ cast round-trip is exact).
   defp put_sample_facts(map, nil), do: map
-  defp put_sample_facts(map, sample_facts) when is_map(sample_facts) and map_size(sample_facts) == 0, do: map
+
+  defp put_sample_facts(map, sample_facts)
+       when is_map(sample_facts) and map_size(sample_facts) == 0, do: map
+
   defp put_sample_facts(map, sample_facts), do: Map.put(map, "sample_facts", sample_facts)
 
   # There is no repo to trigger primary-key autogeneration, so a UUID id is

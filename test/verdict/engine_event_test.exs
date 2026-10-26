@@ -247,8 +247,8 @@ defmodule Verdict.EngineEventTest do
     end
 
     test "does not render a rule's failure_event when the rule fires" do
-      # the failure template uses control flow, which raises if rendered without
-      # allow_unsafe_eex — so a firing rule must never touch it
+      # a firing rule renders its event, not its failure_event, so the failure
+      # template is never evaluated for a passing rule
       engine =
         Engine.new()
         |> Engine.add_fact("n", 1)
@@ -262,7 +262,7 @@ defmodule Verdict.EngineEventTest do
         Engine.run(engine, %{ok: true})
     end
 
-    test "raises at run time for control flow when allow_unsafe_eex is off" do
+    test "renders control flow at run time by default" do
       engine =
         Engine.new()
         |> Engine.add_fact("n", 1)
@@ -271,20 +271,55 @@ defmodule Verdict.EngineEventTest do
           event: %{type: "t", params: %{m: %{eex_string: "<%= if n do %>y<% end %>"}}}
         })
 
-      assert_raise ArgumentError, ~r/control flow/, fn -> Engine.run(engine, %{ok: true}) end
+      %RunResult{events: [event]} = Engine.run(engine, %{ok: true})
+      assert event.params == %{m: "y"}
     end
 
-    test "renders control flow when allow_unsafe_eex is true" do
+    test "allow_unsafe_eex bypasses the sandbox for arbitrary EEx" do
       engine =
-        Engine.new()
+        Engine.new(allow_unsafe_eex: true)
         |> Engine.add_fact("n", 1)
         |> TestSupport.add_rule(%{
           conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
-          event: %{type: "t", params: %{m: %{eex_string: "<%= if n do %>y<% end %>"}}}
+          event: %{type: "t", params: %{m: %{eex_string: "<%= System.get_env(\"PWD\") %>"}}}
         })
 
-      %RunResult{events: [event]} = Engine.run(engine, %{ok: true}, allow_unsafe_eex: true)
-      assert event.params == %{m: "y"}
+      %RunResult{events: [event]} = Engine.run(engine, %{ok: true})
+      assert is_binary(event.params.m)
+    end
+
+    test "rejects a non-whitelisted module at add_rule" do
+      assert {:error, changeset} =
+               Engine.add_rule(Engine.new(), %{
+                 name: "bad",
+                 conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
+                 event: %{type: "t", params: %{m: %{eex_string: "<%= System.get_env(\"X\") %>"}}}
+               })
+
+      assert changeset.errors != []
+    end
+
+    test "rejects an Erlang primitive at add_rule" do
+      assert {:error, changeset} =
+               Engine.add_rule(Engine.new(), %{
+                 name: "bad",
+                 conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
+                 event: %{type: "t", params: %{m: %{eex_string: "<%= :os.cmd(\"id\") %>"}}}
+               })
+
+      assert changeset.errors != []
+    end
+
+    test "a custom eex_whitelist extends the defaults" do
+      assert {:ok, _engine, _rule} =
+               Engine.add_rule(Engine.new(eex_whitelist: [:System]), %{
+                 name: "ok",
+                 conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
+                 event: %{
+                   type: "t",
+                   params: %{m: %{eex_string: "<%= System.get_env(\"PWD\") %>"}}
+                 }
+               })
     end
 
     test "typed markers render to their Elixir types in the emitted event" do
@@ -326,7 +361,10 @@ defmodule Verdict.EngineEventTest do
         |> TestSupport.add_rule(%{
           conditions: %{any: [%{fact: "ok", operator: "equal", value: true}]},
           event: %{type: "greeted", params: %{message: %{eex_string: "Hello <%= name %>!"}}},
-          failure_event: %{type: "not-greeted", params: %{reason: %{eex_string: "<%= name %> was not ok"}}}
+          failure_event: %{
+            type: "not-greeted",
+            params: %{reason: %{eex_string: "<%= name %> was not ok"}}
+          }
         })
         |> Engine.on("failure", fn event, _a, _rr ->
           TestSupport.collect(collected, event)
@@ -374,6 +412,7 @@ defmodule Verdict.EngineEventTest do
 
     assert fe.type == "failure-type"
     assert fe.params == %{why: "too young"}
+
     assert Verdict.RuleResult.to_map(rr)["failure_event"] ==
              %{"type" => "failure-type", "params" => %{why: "too young"}}
   end

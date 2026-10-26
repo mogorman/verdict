@@ -70,6 +70,7 @@ defmodule Verdict.Evaluator do
       path_resolver: Keyword.get(opts, :path_resolver),
       allow_undefined_conditions: Keyword.get(opts, :allow_undefined_conditions, false),
       allow_unsafe_eex: Keyword.get(opts, :allow_unsafe_eex, false),
+      eex_whitelist: Keyword.get(opts, :eex_whitelist, Template.default_whitelist()),
       strict: Keyword.get(opts, :strict, false),
       report: report,
       log: log
@@ -248,7 +249,11 @@ defmodule Verdict.Evaluator do
   # `Verdict.Template`); the binding is built once per event from the almanac.
   defp render_event_params(%{params: params} = event, context) when is_map(params) do
     binding = Template.binding(context.almanac)
-    %{event | params: Template.render(params, binding, context.allow_unsafe_eex)}
+
+    %{
+      event
+      | params: Template.render(params, binding, context.allow_unsafe_eex, context.eex_whitelist)
+    }
   end
 
   defp render_event_params(event, _context), do: event

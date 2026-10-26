@@ -48,10 +48,8 @@ defmodule Verdict.TemplateTest do
     assert Template.render(%{eex_string: "<%= facts[\"game-duration\"] %>"}, b, false) == "9"
   end
 
-  test "a control-flow template raises when allow_unsafe is false" do
-    assert_raise ArgumentError, ~r/control flow/, fn ->
-      Template.render(%{eex_string: "<% if true %>yes<% end %>"}, bnd(), false)
-    end
+  test "a control-flow template renders even when allow_unsafe is false" do
+    assert Template.render(%{eex_string: "<%= if true do %>yes<% end %>"}, bnd(), false) == "yes"
   end
 
   test "a control-flow template renders when allow_unsafe is true" do
@@ -107,6 +105,84 @@ defmodule Verdict.TemplateTest do
   test "validate reports ill-formed templates" do
     assert {:error, [message]} = Template.validate(%{a: %{eex_string: "<%= unclosed"}})
     assert message =~ "not valid EEx"
+  end
+
+  describe "sandbox" do
+    test "renders a whitelisted module function" do
+      assert Template.render(%{eex_string: "<%= String.upcase(bar) %>"}, bnd(), false) == "X"
+    end
+
+    test "renders the OTP :json module" do
+      assert Template.render(%{eex_string: "<%= :json.encode(5) %>"}, bnd(), false) == "5"
+    end
+
+    test "renders the Elixir JSON wrapper module" do
+      assert Template.render(%{eex_string: "<%= JSON.encode!(5) %>"}, bnd(), false) == "5"
+    end
+
+    test "renders the OTP :math module" do
+      assert Template.render(%{eex_string: "<%= :math.sqrt(16) %>"}, bnd(), false) == "4.0"
+    end
+
+    test "renders with math operators and math functions" do
+      assert Template.render(%{eex_string: "<%= count * 2 %>"}, bnd(), false) == "10"
+      assert Template.render(%{eex_string: "<%= abs(count - 7) %>"}, bnd(), false) == "2"
+    end
+
+    test "renders with anonymous functions over whitelisted modules" do
+      assert Template.render(
+               %{eex_string: "<%= Enum.map([1, 2], fn x -> x + 1 end) |> Enum.count() %>"},
+               bnd(),
+               false
+             ) == "2"
+    end
+
+    test "raises at render for a non-whitelisted module" do
+      assert_raise ArgumentError, ~r/not in the allowed EEx whitelist/, fn ->
+        Template.render(%{eex_string: "<%= System.get_env(\"X\") %>"}, bnd(), false)
+      end
+    end
+
+    test "raises at render for an Erlang primitive" do
+      assert_raise ArgumentError, ~r/not in the allowed EEx whitelist/, fn ->
+        Template.render(%{eex_string: "<%= :os.cmd(\"id\") %>"}, bnd(), false)
+      end
+    end
+
+    test "raises at render for a non-math Kernel function" do
+      assert_raise ArgumentError, ~r/not allowed in an EEx template/, fn ->
+        Template.render(%{eex_string: "<%= inspect(bar) %>"}, bnd(), false)
+      end
+    end
+
+    test "allow_unsafe bypasses the whitelist guard at render" do
+      assert is_binary(
+               Template.render(%{eex_string: "<%= System.get_env(\"PWD\") %>"}, bnd(), true)
+             )
+    end
+
+    test "validate rejects a non-whitelisted module" do
+      assert {:error, [message]} =
+               Template.validate(%{a: %{eex_string: "<%= System.get_env(\"X\") %>"}})
+
+      assert message =~ "not in the allowed EEx whitelist"
+    end
+
+    test "validate rejects an Erlang primitive" do
+      assert {:error, [message]} =
+               Template.validate(%{a: %{eex_string: "<%= :os.cmd(\"id\") %>"}})
+
+      assert message =~ "not in the allowed EEx whitelist"
+    end
+
+    test "validate skips the guard when allow_unsafe is true" do
+      assert :ok =
+               Template.validate(
+                 %{a: %{eex_string: "<%= System.get_env(\"X\") %>"}},
+                 Template.default_whitelist(),
+                 true
+               )
+    end
   end
 
   describe "typed markers" do
