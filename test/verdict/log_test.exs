@@ -71,15 +71,6 @@ defmodule Verdict.LogTest do
     end
   end
 
-  describe "Log.normalize/3" do
-    test "resolves the first non-nil candidate, most-specific first" do
-      assert Log.normalize(:debug, :info, :warning) == :debug
-      assert Log.normalize(nil, :info, :warning) == :info
-      assert Log.normalize(nil, nil, :warning) == :warning
-      assert Log.normalize(nil, nil, nil) == nil
-    end
-  end
-
   describe "emitters" do
     test "always return :ok, for strings and lazy functions" do
       assert :ok = Log.debug(:off, "x")

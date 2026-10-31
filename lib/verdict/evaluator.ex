@@ -79,7 +79,9 @@ defmodule Verdict.Evaluator do
     callbacks = Keyword.get(opts, :callbacks, %{})
     rule_callbacks = Keyword.get(opts, :rule_callbacks, %{})
     replace_facts = Keyword.get(opts, :replace_facts_in_event_params, false)
-    buckets = rules |> Enum.group_by(& &1.priority) |> by_priority_desc()
+
+    buckets =
+      rules |> Enum.group_by(& &1.priority) |> Enum.sort_by(fn {priority, _} -> -priority end)
 
     Log.debug(log, fn -> "run started: #{length(rules)} rules, schedule: #{inspect(schedule)}" end)
 
@@ -307,10 +309,6 @@ defmodule Verdict.Evaluator do
       failure_events: Enum.reject(Enum.map(invalid, & &1.failure_event), &is_nil/1),
       results: results
     }
-  end
-
-  defp by_priority_desc(grouped) do
-    Enum.sort_by(grouped, fn {priority, _} -> -priority end)
   end
 
   # The effective priority of a fact for ordering, mirroring how the almanac merges

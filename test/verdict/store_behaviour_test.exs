@@ -53,13 +53,6 @@ defmodule Verdict.StoreBehaviourTest do
     assert :ets.info(:"#{table}.facts") == :undefined
   end
 
-  test "State.ensure_id/1 fills in a missing rule id and keeps an existing one" do
-    assert %Rule{id: id} = Verdict.Store.State.ensure_id(%Rule{})
-    assert is_binary(id)
-
-    assert %Rule{id: "keep"} = Verdict.Store.State.ensure_id(%Rule{id: "keep"})
-  end
-
   # Exercises every Store callback against one backend. `mod` must be any module
   # implementing the `Verdict.Store` behaviour.
   defp contract(mod) do

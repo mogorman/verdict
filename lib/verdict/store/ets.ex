@@ -23,7 +23,6 @@ defmodule Verdict.Store.Ets do
   @behaviour Verdict.Store
 
   alias Verdict.Fact
-  alias Verdict.Store.State
 
   @type t :: pid() | atom()
 
@@ -143,7 +142,6 @@ defmodule Verdict.Store.Ets do
 
   @impl true
   def handle_call({:add_rule, rule}, _from, state) do
-    rule = State.ensure_id(rule)
     :ets.insert(state.rules, {rule.id, rule})
     {:reply, rule, state}
   end

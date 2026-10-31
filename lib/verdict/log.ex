@@ -72,22 +72,6 @@ defmodule Verdict.Log do
     level
   end
 
-  @doc """
-  Resolves a log level from up to three candidates, most-specific first.
-
-  The first non-`nil` candidate wins:
-  `normalize(run_level, engine_level, app_config_level)`. Returns `nil` (off)
-  when none is set.
-  """
-  @spec normalize(term(), term(), term()) :: level()
-  def normalize(a, b, c) do
-    cond do
-      a != nil -> a
-      b != nil -> b
-      true -> c
-    end
-  end
-
   @doc "Returns `true` when `level` emits messages at `severity` or higher."
   @spec emit?(level(), level()) :: boolean()
   def emit?(level, severity), do: rank(level) != nil and rank(level) <= rank(severity)

@@ -397,13 +397,11 @@ defmodule Verdict.Evaluation do
 
   defp merge_maps(list), do: Enum.reduce(list, %{}, &Map.merge(&2, &1))
 
-  defp by_priority_desc(grouped), do: Enum.sort_by(grouped, fn {priority, _} -> -priority end)
-
   # Children ordered by effective priority (descending); ties keep declaration order.
   defp order_children(children, context) do
     children
     |> Enum.group_by(fn child -> effective_priority(child, context) end)
-    |> by_priority_desc()
+    |> Enum.sort_by(fn {priority, _} -> -priority end)
     |> Enum.map(&elem(&1, 1))
     |> List.flatten()
   end
@@ -529,19 +527,17 @@ defmodule Verdict.Evaluation do
   defp compiled_ast({:ok, ast}, _path), do: ast
   defp compiled_ast({:error, _}, _path), do: :invalid
 
-  defp compiled_ast(nil, path) do
-    case JSONPath.build(normalize_json_path(path)) do
-      {:ok, ast} -> ast
-      {:error, _} -> :invalid
-    end
-  end
-
   # The reference engine's JSONPath (jsonpath-plus) accepts the member-access
   # form `$.obj.['key']`; the RFC-9535 `json_path` lib expects `$.obj['key']`.
   # Normalize the dot-bracket form so keys with special characters (e.g. dots)
   # resolve. Index/wildcard segments are unaffected (the bracket is preceded by
   # a non-dot character).
-  defp normalize_json_path(path), do: String.replace(path, ".[", "[")
+  defp compiled_ast(nil, path) do
+    case JSONPath.build(String.replace(path, ".[", "[")) do
+      {:ok, ast} -> ast
+      {:error, _} -> :invalid
+    end
+  end
 
   defp normalize_path(matches, path) do
     cond do

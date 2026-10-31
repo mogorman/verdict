@@ -37,7 +37,6 @@ defmodule Verdict.Store.State do
 
   @spec add_rule(t(), Rule.t()) :: {t(), Rule.t()}
   def add_rule(%__MODULE__{} = state, %Rule{} = rule) do
-    rule = ensure_id(rule)
     {%{state | rules: Map.put(state.rules, rule.id, rule)}, rule}
   end
 
@@ -120,9 +119,4 @@ defmodule Verdict.Store.State do
   def conditions(%__MODULE__{} = state) do
     {state, state.conditions}
   end
-
-  @doc "Returns `rule` with a generated `id` if it does not already have one."
-  @spec ensure_id(Rule.t()) :: Rule.t()
-  def ensure_id(%Rule{id: id} = rule) when is_binary(id), do: rule
-  def ensure_id(%Rule{} = rule), do: %{rule | id: Ecto.UUID.generate()}
 end
